@@ -656,9 +656,11 @@ export default function TerminalView({
     ? formatDuration(sessionStatus.lastDuration)
     : null;
 
-  // ── Unified drop handler used by both the wrapper (fallback) and the
-  //    termContainer (primary). Accepts native files from Finder/Screenshot
-  //    plus our internal file-tree drags.
+  // ── Unified drop handler — accepts native files from Finder/Screenshot
+  //    plus our internal file-tree drags. HEIC/TIFF/BMP are silently
+  //    converted to PNG by the main process; user sees a quick info toast
+  //    in the top-right corner (NOT written to the terminal itself, which
+  //    would pollute the AI's conversation history).
   const handleDrop = async (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -666,6 +668,8 @@ export default function TerminalView({
     e.currentTarget.classList?.remove('terminal-drop-zone-active');
 
     const pathsToInsert = [];
+    const convertedFiles = [];  // names of files we auto-converted
+
     const internalPath = e.dataTransfer.getData('application/x-zhishu-file');
     if (internalPath) {
       pathsToInsert.push(internalPath);
@@ -677,11 +681,7 @@ export default function TerminalView({
           const result = await window.electronAPI.normalizeImage(nativePath);
           if (result?.ok) {
             pathsToInsert.push(result.path);
-            if (result.converted) {
-              termRef.current?.write(
-                `\r\n\x1b[2m[已转换 ${file.name} → PNG]\x1b[0m\r\n`
-              );
-            }
+            if (result.converted) convertedFiles.push(file.name);
           } else {
             pathsToInsert.push(nativePath);
           }
@@ -700,6 +700,19 @@ export default function TerminalView({
         .join(' ');
       window.electronAPI.insertTextInPty(sessionId, quoted + ' ');
       termRef.current?.focus();
+
+      // Fire an info toast (top-right) if we auto-converted anything.
+      // We deliberately do NOT write to the terminal — the AI's context
+      // should stay clean and not see our internal system messages.
+      if (convertedFiles.length > 0) {
+        const { addToast } = useSessionStore.getState();
+        addToast({
+          kind: 'info',
+          title: convertedFiles.length === 1 ? '图片已转换为 PNG' : `${convertedFiles.length} 个图片已转换`,
+          body: convertedFiles.join(' · '),
+          color: '#22c55e',
+        });
+      }
     }
   };
 

@@ -30,30 +30,69 @@ export default function ToastStack({ toasts, onDismiss, onNavigate }) {
 }
 
 // ─── Individual toast ─────────────────────────────────────────────────────────
+//
+// Two variants:
+//   • completion: AI response finished — shows tool badge, session name,
+//                 duration, "前往查看" CTA; clicking navigates to that session.
+//   • info:       generic lightweight notification (HEIC converted, file saved,
+//                 etc.) — just shows title + body, click dismisses.
 
 function ToastItem({ toast, onDismiss, onNavigate }) {
-  // Auto-dismiss timer
-  useEffect(() => {
-    const t = setTimeout(() => onDismiss(toast.id), AUTO_DISMISS_MS);
-    return () => clearTimeout(t);
-  }, [toast.id, onDismiss]);
+  const isInfo = toast.kind === 'info';
 
-  const color = TOOL_COLORS[toast.tool] || '#22c55e';
+  // Auto-dismiss timer — info toasts are shorter-lived (3s vs 6s)
+  useEffect(() => {
+    const timeout = isInfo ? 3000 : AUTO_DISMISS_MS;
+    const t = setTimeout(() => onDismiss(toast.id), timeout);
+    return () => clearTimeout(t);
+  }, [toast.id, onDismiss, isInfo]);
+
+  const color = isInfo
+    ? (toast.color || '#f59e0b')
+    : (TOOL_COLORS[toast.tool] || '#22c55e');
 
   const handleClick = () => {
-    onNavigate(toast.sessionId);
-    onDismiss(toast.id);
+    if (isInfo) {
+      onDismiss(toast.id);
+    } else {
+      onNavigate(toast.sessionId);
+      onDismiss(toast.id);
+    }
   };
 
+  // ── Info variant (simple title + body) ─────────────────────────────
+  if (isInfo) {
+    return (
+      <div style={{ ...styles.toast, borderLeftColor: color }} onClick={handleClick}>
+        <div style={{ ...styles.glow, background: `radial-gradient(circle at 0% 50%, ${color}22, transparent 70%)` }} />
+        <div style={styles.content}>
+          <div style={styles.header}>
+            <span style={{ ...styles.toolDot, background: color, boxShadow: `0 0 8px ${color}` }} />
+            <span style={{ ...styles.toolName, color }}>{toast.title || '提示'}</span>
+            <div style={{ flex: 1 }} />
+            <button
+              style={styles.closeBtn}
+              onClick={(e) => { e.stopPropagation(); onDismiss(toast.id); }}
+              title="关闭"
+            >×</button>
+          </div>
+          {toast.body && (
+            <div style={styles.body}>
+              <span style={styles.sessionName}>{toast.body}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Completion variant (AI response done) ──────────────────────────
   const durationText = formatDuration(toast.duration);
 
   return (
     <div style={{ ...styles.toast, borderLeftColor: color }} onClick={handleClick}>
-      {/* Accent glow */}
       <div style={{ ...styles.glow, background: `radial-gradient(circle at 0% 50%, ${color}22, transparent 70%)` }} />
-
       <div style={styles.content}>
-        {/* Header: tool icon + status */}
         <div style={styles.header}>
           <span style={{ ...styles.toolDot, background: color, boxShadow: `0 0 8px ${color}` }} />
           <span style={{ ...styles.toolName, color }}>{toast.toolLabel}</span>
@@ -62,17 +101,11 @@ function ToastItem({ toast, onDismiss, onNavigate }) {
             style={styles.closeBtn}
             onClick={(e) => { e.stopPropagation(); onDismiss(toast.id); }}
             title="关闭"
-          >
-            ×
-          </button>
+          >×</button>
         </div>
-
-        {/* Body: session name + duration */}
         <div style={styles.body}>
           <span style={styles.sessionName}>{toast.sessionName}</span>
         </div>
-
-        {/* Footer: duration + CTA */}
         <div style={styles.footer}>
           <span style={styles.duration}>耗时 {durationText}</span>
           <span style={{ ...styles.cta, color }}>前往查看 →</span>
