@@ -16,7 +16,7 @@
  *   - tools.js    — tool catalog + installation IPC handlers
  */
 
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
 const path = require('path');
 const os = require('os');
 
@@ -32,14 +32,62 @@ let mainWindow = null;
 let hasShownHideHint = false;
 let monitorInterval = null;
 
+// ─── Window bounds persistence helpers ──────────────────────────────────────
+
+const DEFAULT_WINDOW_WIDTH = 1400;
+const DEFAULT_WINDOW_HEIGHT = 900;
+const MIN_WINDOW_WIDTH = 900;
+const MIN_WINDOW_HEIGHT = 600;
+
+/**
+ * Check whether a given window position falls within any connected display's
+ * work area. Prevents the window from appearing off-screen after an external
+ * monitor is disconnected.
+ */
+function isBoundsVisible(bounds) {
+  const displays = screen.getAllDisplays();
+  return displays.some((d) => {
+    const { x, y, width, height } = d.workArea;
+    return (
+      bounds.x >= x &&
+      bounds.x < x + width &&
+      bounds.y >= y &&
+      bounds.y < y + height
+    );
+  });
+}
+
+/**
+ * Save the current window position, size, and maximized state into the config
+ * file so they can be restored on next launch.
+ */
+async function saveWindowBounds(win) {
+  if (!win || win.isDestroyed()) return;
+  try {
+    const config = loadConfig();
+    const bounds = win.getBounds();
+    config.windowBounds = {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      isMaximized: win.isMaximized(),
+    };
+    await saveConfigAsync(config);
+  } catch (e) {
+    console.error('[main] Failed to save window bounds:', e);
+  }
+}
+
 // ─── Window creation ──────────────────────────────────────────────────────
 
 function createWindow() {
-  const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 900,
-    minHeight: 600,
+  // Restore saved window bounds if available and valid.
+  const config = loadConfig();
+  const saved = config.windowBounds;
+  const windowOptions = {
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     backgroundColor: '#0a0a0a',
     titleBarStyle: 'hiddenInset',
     vibrancy: 'under-window',
@@ -49,11 +97,39 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-  });
+  };
+
+  if (
+    saved &&
+    typeof saved.x === 'number' &&
+    typeof saved.y === 'number' &&
+    typeof saved.width === 'number' &&
+    typeof saved.height === 'number' &&
+    isBoundsVisible(saved)
+  ) {
+    // Clamp saved dimensions to minimum constraints.
+    windowOptions.width = Math.max(saved.width, MIN_WINDOW_WIDTH);
+    windowOptions.height = Math.max(saved.height, MIN_WINDOW_HEIGHT);
+    windowOptions.x = saved.x;
+    windowOptions.y = saved.y;
+  } else {
+    windowOptions.width = DEFAULT_WINDOW_WIDTH;
+    windowOptions.height = DEFAULT_WINDOW_HEIGHT;
+  }
+
+  const win = new BrowserWindow(windowOptions);
+
+  // Restore maximized state (must happen after window creation).
+  if (saved && saved.isMaximized) {
+    win.maximize();
+  }
 
   mainWindow = win;
 
   win.on('close', (e) => {
+    // Persist window bounds before hiding or quitting.
+    saveWindowBounds(win);
+
     if (!app.isQuitting) {
       e.preventDefault();
       win.hide();

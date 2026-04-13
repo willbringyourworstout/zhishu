@@ -54,6 +54,32 @@ function getFallbackActiveSessionId(projects, removedSessionIds, currentActiveSe
   return getFirstSessionId(projects);
 }
 
+// ── Group helpers ──────────────────────────────────────────────────────────
+
+function resolveGroups(groups) {
+  if (Array.isArray(groups) && groups.length > 0) return groups;
+  return [{ id: 'ungrouped', name: '未分组', system: true }];
+}
+
+function ensureUngrouped(groups) {
+  const hasUngrouped = groups.some((g) => g.id === 'ungrouped');
+  if (hasUngrouped) return groups;
+  return [{ id: 'ungrouped', name: '未分组', system: true }, ...groups];
+}
+
+function getProjectsByGroup(projects, groupId) {
+  return (projects || []).filter((p) => {
+    if (groupId === 'ungrouped') return !p.groupId;
+    return p.groupId === groupId;
+  });
+}
+
+function getGroupOrder(groups) {
+  // Return ordered list of groups with ungrouped always last
+  const userGroups = groups.filter((g) => g.id !== 'ungrouped');
+  return [...userGroups, { id: 'ungrouped', name: '未分组', system: true }];
+}
+
 module.exports = {
   getFirstSessionId,
   hasSessionId,
@@ -63,4 +89,8 @@ module.exports = {
   removeSessionFromProjects,
   removeProjectFromProjects,
   getFallbackActiveSessionId,
+  resolveGroups,
+  ensureUngrouped,
+  getProjectsByGroup,
+  getGroupOrder,
 };

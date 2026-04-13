@@ -142,8 +142,16 @@ globalStyle.textContent = `
   .sidebar-resizer:hover { background: rgba(245, 158, 11, 0.4) !important; }
   .sidebar-resizer:active { background: rgba(245, 158, 11, 0.65) !important; }
 
+  /* Panel resizer — show a subtle accent on hover/drag */
+  .panel-resizer:hover { background: rgba(245, 158, 11, 0.4) !important; }
+  .panel-resizer:active { background: rgba(245, 158, 11, 0.65) !important; }
+
   /* Context menu item hover */
   .ctx-item:hover { background: #1a1a1a; }
+
+  /* Prompt template item hover */
+  .template-item:hover { background: #151515; }
+  .template-item:hover .template-action-btn { color: #888 !important; }
 
   /* Sidebar action button hover (project + session row buttons) */
   .sidebar-action-btn:hover { color: #fff !important; background: #222 !important; }
@@ -153,6 +161,16 @@ globalStyle.textContent = `
     box-shadow: inset 0 0 0 2px rgba(245, 158, 11, 0.6) !important;
     background: rgba(245, 158, 11, 0.04) !important;
   }
+
+  /* Drag-over highlight when dragging a session from sidebar to create split */
+  .split-drop-zone-active {
+    box-shadow: inset 0 0 0 2px rgba(245, 158, 11, 0.5) !important;
+    background: rgba(245, 158, 11, 0.03) !important;
+  }
+
+  /* Split pane divider — amber accent on hover/drag */
+  .split-divider:hover { background: rgba(245, 158, 11, 0.4) !important; }
+  .split-divider:active { background: rgba(245, 158, 11, 0.65) !important; }
 
   /* Pulsing animation for the "running" status indicator dot */
   @keyframes pulse {

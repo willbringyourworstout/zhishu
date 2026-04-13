@@ -9,7 +9,7 @@ import { SearchAddon } from '@xterm/addon-search';
 // decoder has a dispose race condition that throws "_isDisposed of undefined"
 // when React 18 strict mode double-mounts the component. Re-enable when fixed upstream.
 import '@xterm/xterm/css/xterm.css';
-import { ToolIcon, BellIcon, BellMutedIcon, PinIcon, GearIcon, TreeIcon, GitBranchIcon } from './ToolIcons';
+import { ToolIcon, BellIcon, BellMutedIcon, PinIcon, GearIcon, TreeIcon, GitBranchIcon, TemplateIcon } from './ToolIcons';
 import { useSessionStore } from '../store/sessions';
 import {
   TOOL_VISUALS,
@@ -20,6 +20,7 @@ import {
 } from '../constants/toolVisuals';
 import FileTreePanel from './FileTreePanel';
 import GitPanel from './GitPanel';
+import PromptTemplate from './PromptTemplate';
 
 // ─── Tool definitions ────────────────────────────────────────────────────────
 // Each tool has two variants: `safe` (interactive confirmation) and `yolo`
@@ -319,9 +320,11 @@ export default function TerminalView({
   notificationsEnabled, onNotificationsToggle,
   sessionLastTool,  // Last AI tool used in this session (for auto-restore)
   isActive,         // Whether this session is the currently visible one
+  splitMode,        // When true, relax minWidth to 350px for split pane
 }) {
   const containerRef = useRef(null);
   const termRef = useRef(null);
+  const wrapperRef = useRef(null);
   const fitAddonRef = useRef(null);
   const searchAddonRef = useRef(null);
   const webglAddonRef = useRef(null);
@@ -337,6 +340,9 @@ export default function TerminalView({
   const [hoveredTool, setHoveredTool] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isResizing, setIsResizing] = useState(false);
+  const [promptTemplateOpen, setPromptTemplateOpen] = useState(false);
+  const promptTemplateBtnRef = useRef(null);
 
   // ── Restore terminal focus when search bar closes ────────────────────────
   // When searchOpen transitions from true to false, the search <input> is
@@ -402,6 +408,10 @@ export default function TerminalView({
   const gitPanelOpen = useSessionStore((s) => s.gitPanelOpen);
   const toggleGitPanel = useSessionStore((s) => s.toggleGitPanel);
   const closeGitPanel = useSessionStore((s) => s.closeGitPanel);
+  const gitPanelWidth = useSessionStore((s) => s.gitPanelWidth);
+  const fileTreeWidth = useSessionStore((s) => s.fileTreeWidth);
+  const setPanelWidth = useSessionStore((s) => s.setPanelWidth);
+  const commitPanelWidth = useSessionStore((s) => s.commitPanelWidth);
   const autoRestoreSessions = useSessionStore((s) => s.autoRestoreSessions);
   const now = useSessionStore((s) => s.now);
 
@@ -589,18 +599,26 @@ export default function TerminalView({
   // ── Resize observer ────────────────────────────────────────────────────────
 
   useEffect(() => {
+    let rafId = null;
     const observer = new ResizeObserver(() => {
-      if (fitAddonRef.current && termRef.current) {
-        try {
-          fitAddonRef.current.fit();
-          const { cols, rows } = termRef.current;
-          window.electronAPI.resizePty(sessionId, cols, rows);
-        } catch (_) {}
-      }
+      if (rafId) return; // coalesce into a single rAF
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (fitAddonRef.current && termRef.current) {
+          try {
+            fitAddonRef.current.fit();
+            const { cols, rows } = termRef.current;
+            window.electronAPI.resizePty(sessionId, cols, rows);
+          } catch (_) {}
+        }
+      });
     });
 
     if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, [sessionId]);
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -786,8 +804,50 @@ export default function TerminalView({
     e.dataTransfer.dropEffect = 'copy';
   };
 
+  // ── Panel resizer drag handler ───────────────────────────────────────────
+  // Dragging the resizer on the panel's left edge adjusts the panel width.
+  // Direction is inverted compared to the sidebar resizer: moving mouse left
+  // increases the panel width, moving right decreases it.
+  const onPanelResizerMouseDown = useCallback((panelType, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+
+    const startX = e.clientX;
+    const panelWidth = panelType === 'git' ? gitPanelWidth : fileTreeWidth;
+
+    const onMouseMove = (moveEvent) => {
+      const deltaX = startX - moveEvent.clientX;
+      const newWidth = panelWidth + deltaX;
+      setPanelWidth(panelType, newWidth);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setIsResizing(false);
+      commitPanelWidth();
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [gitPanelWidth, fileTreeWidth, setPanelWidth, commitPanelWidth]);
+
+  // Determine which panel is currently open (for computing panel column width)
+  // H4: In split mode, only the active pane is allowed to show panels.
+  // This prevents both panes from simultaneously rendering 300-500px panels
+  // that would overflow in the narrow split layout.
+  const canShowPanel = !splitMode || isActive;
+  const panelOpen = canShowPanel && (gitPanelOpen || fileTreeOpen);
+  const currentPanelWidth = gitPanelOpen ? gitPanelWidth : fileTreeWidth;
+
   return (
     <div
+      ref={wrapperRef}
       style={styles.wrapper}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
@@ -934,6 +994,30 @@ export default function TerminalView({
             <TreeIcon size={14} />
           </button>
 
+          {/* Prompt template selector */}
+          <div style={{ position: 'relative' }}>
+            <button
+              ref={promptTemplateBtnRef}
+              onClick={() => setPromptTemplateOpen((v) => !v)}
+              style={{
+                ...styles.iconOnlyBtn,
+                color: promptTemplateOpen ? '#f59e0b' : '#666',
+                borderColor: promptTemplateOpen ? '#3a2e0a' : '#1e1e1e',
+                background: promptTemplateOpen ? '#1a150a' : '#121212',
+              }}
+              title="Prompt 模板"
+            >
+              <TemplateIcon size={14} />
+            </button>
+            {promptTemplateOpen && (
+              <PromptTemplate
+                sessionId={sessionId}
+                anchorRef={promptTemplateBtnRef}
+                onClose={() => setPromptTemplateOpen(false)}
+              />
+            )}
+          </div>
+
           {/* Settings */}
           <button
             onClick={openSettings}
@@ -1030,32 +1114,52 @@ export default function TerminalView({
         </div>
       )}
 
-      {/* ═══ xterm container ════════════════════════════════════════════ */}
-      {/* Drop is handled at the wrapper level — events bubble up. We still
-          add visual feedback here via dragover/dragleave. */}
-      <div
-        ref={containerRef}
-        style={styles.termContainer}
-        onClick={() => termRef.current?.focus()}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          e.dataTransfer.dropEffect = 'copy';
-          e.currentTarget.classList.add('terminal-drop-zone-active');
-        }}
-        onDragLeave={(e) => {
-          e.currentTarget.classList.remove('terminal-drop-zone-active');
-        }}
-        onDrop={(e) => {
-          // Remove visual state — actual handling bubbles to wrapper's handleDrop
-          e.currentTarget.classList.remove('terminal-drop-zone-active');
-          handleDrop(e);
-        }}
-      />
+      {/* ═══ Content row: terminal + panel ══════════════════════════════ */}
+      <div style={styles.contentRow}>
+        {/* Terminal column — flex:1 so it shrinks to make room for panels */}
+        <div
+          ref={containerRef}
+          style={{
+            ...styles.terminalColumn,
+            minWidth: splitMode ? 350 : 400,
+          }}
+          onClick={() => termRef.current?.focus()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = 'copy';
+            e.currentTarget.classList.add('terminal-drop-zone-active');
+          }}
+          onDragLeave={(e) => {
+            e.currentTarget.classList.remove('terminal-drop-zone-active');
+          }}
+          onDrop={(e) => {
+            e.currentTarget.classList.remove('terminal-drop-zone-active');
+            handleDrop(e);
+          }}
+        />
 
-      {/* ═══ Right-side drawers (mutually exclusive) ════════════════════ */}
-      <FileTreePanel open={fileTreeOpen} cwd={cwd} onClose={closeFileTree} />
-      <GitPanel open={gitPanelOpen} cwd={cwd} sessionId={sessionId} onClose={closeGitPanel} />
+        {/* Panel column — inline panel area */}
+        {panelOpen && (
+          <div style={{
+            ...styles.panelColumn,
+            width: currentPanelWidth,
+            transition: isResizing ? 'none' : 'width 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
+          }}>
+            <div
+              className="panel-resizer"
+              style={styles.panelResizer}
+              onMouseDown={(e) => onPanelResizerMouseDown(gitPanelOpen ? 'git' : 'file', e)}
+            />
+            {gitPanelOpen && (
+              <GitPanel open={gitPanelOpen} cwd={cwd} sessionId={sessionId} onClose={closeGitPanel} />
+            )}
+            {fileTreeOpen && (
+              <FileTreePanel open={fileTreeOpen} cwd={cwd} onClose={closeFileTree} />
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1068,7 +1172,6 @@ const styles = {
     flexDirection: 'column',
     height: '100%',
     background: '#0d0d0d',
-    position: 'relative',
     overflow: 'hidden',
   },
   // Thin invisible drag strip above the toolbar — only this consumes clicks
@@ -1288,10 +1391,34 @@ const styles = {
     fontFamily: 'var(--font-mono)',
   },
 
-  termContainer: {
+  // ── Content row: terminal + inline panel side-by-side ──────────────────
+  contentRow: {
+    display: 'flex',
     flex: 1,
+    overflow: 'hidden',
+  },
+  terminalColumn: {
+    flex: 1,
+    minWidth: 400,
     overflow: 'hidden',
     padding: '8px 10px 2px',
     background: '#0d0d0d',
+  },
+  panelColumn: {
+    flexShrink: 0,
+    display: 'flex',
+    position: 'relative',
+    borderLeft: '1px solid #1a1a1a',
+    overflow: 'hidden',
+  },
+  panelResizer: {
+    position: 'absolute',
+    top: 0,
+    left: -3,
+    width: 6,
+    height: '100%',
+    cursor: 'col-resize',
+    background: 'transparent',
+    zIndex: 100,
   },
 };

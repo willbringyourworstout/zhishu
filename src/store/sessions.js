@@ -8,6 +8,8 @@ const {
   removeSessionFromProjects,
   removeProjectFromProjects,
   getFallbackActiveSessionId,
+  resolveGroups,
+  ensureUngrouped,
 } = require('./sessionState');
 
 // ─── Default config ──────────────────────────────────────────────────────────
@@ -130,6 +132,16 @@ export const PROJECT_TEMPLATES = [
   },
 ];
 
+// ─── Built-in prompt templates (immutable, cannot be edited/deleted) ─────────
+
+const BUILTIN_PROMPT_TEMPLATES = [
+  { id: 'builtin-review', title: '审查代码', content: '请审查以下代码，关注安全性、性能和可维护性', builtin: true },
+  { id: 'builtin-test', title: '写测试', content: '请为以下代码编写单元测试，覆盖主要逻辑和边界情况', builtin: true },
+  { id: 'builtin-explain', title: '解释代码', content: '请解释以下代码的功能和设计意图', builtin: true },
+  { id: 'builtin-fix', title: '修复 Bug', content: '以下代码有 bug，请分析原因并提供修复方案', builtin: true },
+  { id: 'builtin-optimize', title: '优化性能', content: '请分析以下代码的性能瓶颈并提供优化建议', builtin: true },
+];
+
 // ─── Store ───────────────────────────────────────────────────────────────────
 
 export const useSessionStore = create((set, get) => ({
@@ -161,6 +173,9 @@ export const useSessionStore = create((set, get) => ({
   // Settings modal open state
   settingsOpen: false,
 
+  // Prompt templates (builtin + user-created)
+  promptTemplates: [],
+
   // File tree drawer (right side panel)
   fileTreeOpen: false,
   // Git panel drawer (right side panel — mutex with file tree)
@@ -169,6 +184,18 @@ export const useSessionStore = create((set, get) => ({
   theme: 'dark',
   // Sidebar width — user-resizable via the resizer handle on its right edge
   sidebarWidth: 236,
+  // Panel widths — user-resizable via the resizer handle on each panel's left edge
+  gitPanelWidth: 320,
+  fileTreeWidth: 300,
+
+  // Split pane state: null when no split, object when active
+  // { sessionId, direction: 'horizontal'|'vertical', ratio: 0.5 }
+  // NOT persisted — transient workspace arrangement
+  splitPane: null,
+
+  // Group system: project folders for organizing projects
+  // groups: [{ id, name, color?, system?, collapsed? }]
+  groups: [{ id: 'ungrouped', name: '未分组', system: true }],
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
 
@@ -187,6 +214,13 @@ export const useSessionStore = create((set, get) => ({
       const theme = resolveTheme(config.theme);
       document.documentElement.setAttribute('data-theme', theme);
 
+      // Merge builtin templates with user-created custom templates from config
+      const customTemplates = (config.promptTemplates || []).filter((t) => !t.builtin);
+      const promptTemplates = [...BUILTIN_PROMPT_TEMPLATES, ...customTemplates];
+
+      // Resolve groups from config, ensuring "ungrouped" is always present
+      const groups = resolveGroups(config.groups);
+
       set({
         projects,
         activeSessionId,
@@ -194,9 +228,13 @@ export const useSessionStore = create((set, get) => ({
         notificationsEnabled: config.notificationsEnabled !== false,
         autoRestoreSessions: config.autoRestoreSessions !== false,  // default true
         providerConfigs: config.providerConfigs || {},
+        promptTemplates,
         toolCatalog: catalog || { tools: {}, providers: {} },
         theme,
         sidebarWidth: config.sidebarWidth || 236,
+        gitPanelWidth: config.gitPanelWidth || 320,
+        fileTreeWidth: config.fileTreeWidth || 300,
+        groups,
         isLoading: false,
       });
 
@@ -225,7 +263,11 @@ export const useSessionStore = create((set, get) => ({
       providerConfigs,
       theme,
       sidebarWidth,
+      gitPanelWidth,
+      fileTreeWidth,
       autoRestoreSessions,
+      promptTemplates,
+      groups,
     } = get();
     window.electronAPI.saveConfig({
       projects,
@@ -233,7 +275,10 @@ export const useSessionStore = create((set, get) => ({
       yoloMode,
       notificationsEnabled,
       providerConfigs,
-      theme, sidebarWidth, autoRestoreSessions,
+      theme, sidebarWidth, gitPanelWidth, fileTreeWidth, autoRestoreSessions,
+      // Only persist custom templates (builtins are reconstructed from code)
+      promptTemplates: promptTemplates.filter((t) => !t.builtin),
+      groups,
     });
   },
 
@@ -250,6 +295,16 @@ export const useSessionStore = create((set, get) => ({
 
   // Persist after the user finishes dragging (not on every mouse move)
   commitSidebarWidth: () => get().persist(),
+
+  // Panel (Git / FileTree) width resize — clamped to 250-500px
+  setPanelWidth: (panelType, width) => {
+    const minW = 250;
+    const maxW = 500;
+    const clamped = Math.max(minW, Math.min(maxW, width));
+    if (panelType === 'git') set({ gitPanelWidth: clamped });
+    else set({ fileTreeWidth: clamped });
+  },
+  commitPanelWidth: () => get().persist(),
 
   // ── Tool installation status ──────────────────────────────────────────
   refreshToolStatus: async () => {
@@ -409,6 +464,83 @@ export const useSessionStore = create((set, get) => ({
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
   },
 
+  // ── Prompt template CRUD ───────────────────────────────────────────────────
+  addPromptTemplate: (template) => {
+    const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const newTemplate = { ...template, id, builtin: false };
+    set((s) => ({ promptTemplates: [...s.promptTemplates, newTemplate] }));
+    get().persist();
+  },
+
+  removePromptTemplate: (id) => {
+    const template = get().promptTemplates.find((t) => t.id === id);
+    if (template?.builtin) return; // Cannot delete builtin templates
+    set((s) => ({ promptTemplates: s.promptTemplates.filter((t) => t.id !== id) }));
+    get().persist();
+  },
+
+  updatePromptTemplate: (id, updates) => {
+    const template = get().promptTemplates.find((t) => t.id === id);
+    if (template?.builtin) return; // Cannot edit builtin templates
+    set((s) => ({
+      promptTemplates: s.promptTemplates.map((t) => (t.id === id ? { ...t, ...updates } : t)),
+    }));
+    get().persist();
+  },
+
+  // ── Group CRUD ───────────────────────────────────────────────────────────
+
+  createGroup: (name) => {
+    const id = `group-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    set((s) => {
+      const groups = ensureUngrouped([...s.groups, { id, name }]);
+      return { groups };
+    });
+    get().persist();
+    return id;
+  },
+
+  removeGroup: (groupId) => {
+    if (groupId === 'ungrouped') return; // Cannot remove the built-in group
+    set((s) => {
+      const groups = s.groups.filter((g) => g.id !== groupId);
+      // Move all projects from this group back to ungrouped (null groupId)
+      const projects = s.projects.map((p) =>
+        p.groupId === groupId ? { ...p, groupId: null } : p
+      );
+      return { groups: ensureUngrouped(groups), projects };
+    });
+    get().persist();
+  },
+
+  renameGroup: (groupId, name) => {
+    if (groupId === 'ungrouped') return; // Cannot rename the built-in group
+    set((s) => ({
+      groups: s.groups.map((g) => (g.id === groupId ? { ...g, name } : g)),
+    }));
+    get().persist();
+  },
+
+  moveProjectToGroup: (projectId, groupId) => {
+    // groupId can be 'ungrouped' → store as null, or a real group id
+    const resolvedGroupId = groupId === 'ungrouped' ? null : groupId;
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id === projectId ? { ...p, groupId: resolvedGroupId } : p
+      ),
+    }));
+    get().persist();
+  },
+
+  toggleGroupCollapsed: (groupId) => {
+    set((s) => ({
+      groups: s.groups.map((g) =>
+        g.id === groupId ? { ...g, collapsed: !g.collapsed } : g
+      ),
+    }));
+    get().persist();
+  },
+
   // ── Project CRUD ──────────────────────────────────────────────────────────
 
   addProject: (name, path) => {
@@ -521,10 +653,17 @@ export const useSessionStore = create((set, get) => ({
       const newStatus = { ...s.sessionStatus };
       delete newStatus[sessionId];
 
+      // Close split if either participant is removed
+      let newSplitPane = s.splitPane;
+      if (s.splitPane && (s.splitPane.sessionId === sessionId || s.activeSessionId === sessionId)) {
+        newSplitPane = null;
+      }
+
       return {
         projects: nextProjects,
         activeSessionId: newActive,
         sessionStatus: newStatus,
+        splitPane: newSplitPane,
         toasts: s.toasts.filter((toast) => toast.sessionId !== sessionId),
       };
     });
@@ -550,9 +689,62 @@ export const useSessionStore = create((set, get) => ({
     get().syncSessionNamesToMain();
   },
 
+  // ── Split pane ────────────────────────────────────────────────────────────
+
+  // Open a split with an existing session displayed alongside the active one.
+  // direction: 'horizontal' (left-right) or 'vertical' (top-bottom)
+  openSplit: (sessionId, direction = 'horizontal') => {
+    const { activeSessionId, projects, splitPane } = get();
+    // Cannot split with the same session as the active one
+    if (!sessionId || sessionId === activeSessionId) return;
+    // The session must exist
+    if (!hasSessionId(projects, sessionId)) return;
+    // If there is already a split, just replace the secondary
+    set({
+      splitPane: {
+        sessionId,
+        direction: splitPane?.direction || direction,
+        ratio: splitPane?.ratio ?? 0.5,
+      },
+    });
+  },
+
+  // Close the split pane. The secondary session goes back into the termStack.
+  closeSplit: () => {
+    set({ splitPane: null });
+  },
+
+  // Update split ratio during drag (0.2–0.8 clamped)
+  setSplitRatio: (ratio) => {
+    const clamped = Math.max(0.2, Math.min(0.8, ratio));
+    set((s) => {
+      if (!s.splitPane) return {};
+      return { splitPane: { ...s.splitPane, ratio: clamped } };
+    });
+  },
+
+  // Swap primary and secondary sessions
+  swapSplitSessions: () => {
+    const { activeSessionId, splitPane } = get();
+    if (!splitPane) return;
+    const secondaryId = splitPane.sessionId;
+    // Make the secondary the active (primary) and the current active the new secondary
+    set({
+      activeSessionId: secondaryId,
+      splitPane: { ...splitPane, sessionId: activeSessionId },
+    });
+  },
+
   setActiveSession: (sessionId) => {
     if (hasSessionId(get().projects, sessionId)) {
-      set({ activeSessionId: sessionId });
+      const { splitPane, activeSessionId } = get();
+      // H2: If the new session is NOT one of the two split participants,
+      // the user clicked on a third session in the Sidebar — close split.
+      let nextSplitPane = splitPane;
+      if (splitPane && sessionId !== activeSessionId && sessionId !== splitPane.sessionId) {
+        nextSplitPane = null;
+      }
+      set({ activeSessionId: sessionId, splitPane: nextSplitPane });
     }
   },
 

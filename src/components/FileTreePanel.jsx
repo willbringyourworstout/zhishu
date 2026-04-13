@@ -494,8 +494,6 @@ export default function FileTreePanel({ open, cwd, onClose }) {
   return (
     <div style={{
       ...styles.panel,
-      transform: open ? 'translateX(0)' : 'translateX(100%)',
-      pointerEvents: open ? 'auto' : 'none',
     }}>
       {/* Header */}
       <div style={styles.header}>
@@ -592,18 +590,13 @@ export default function FileTreePanel({ open, cwd, onClose }) {
 
 const styles = {
   panel: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    width: 300,
+    position: 'relative',
+    width: '100%',
     background: '#0b0b0b',
-    borderLeft: '1px solid #1a1a1a',
     display: 'flex',
     flexDirection: 'column',
-    transition: 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
-    zIndex: 50,
-    boxShadow: '-8px 0 20px rgba(0, 0, 0, 0.4)',
+    flex: 1,
+    overflow: 'hidden',
   },
   header: {
     display: 'flex',

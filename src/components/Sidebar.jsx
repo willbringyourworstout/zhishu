@@ -1,7 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useSessionStore, PROJECT_TEMPLATES } from '../store/sessions';
 import { TOOL_COLORS, TOOL_LABELS, PHASE_STANDBY, PHASE_REVIEW } from '../constants/toolVisuals';
 import { AppLogo, PencilIcon } from './ToolIcons';
+import ContextMenu from './ContextMenu';
+import { getGroupOrder } from '../store/sessionState';
 
 // ─── Icons (inline SVG — crisp at any scale, no external fonts) ───────────────
 
@@ -54,6 +56,21 @@ const IconChevron = ({ collapsed, size = 9 }) => (
     style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.18s' }}
   >
     <polyline points="6 9 12 15 18 9" />
+  </svg>
+);
+
+const IconFolderOpen = ({ size = 13 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 19a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1" />
+    <path d="M20.5 12H3.5a1 1 0 0 0-1 1.1l1 7a1 1 0 0 0 1 .9h15a1 1 0 0 0 1-.9l1-7a1 1 0 0 0-1-1.1z" />
+  </svg>
+);
+
+const IconMoveToFolder = ({ size = 11 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+    <polyline points="12 11 12 17" />
+    <polyline points="9 14 12 17 15 14" />
   </svg>
 );
 
@@ -155,6 +172,18 @@ function getPhaseIndicator(status) {
 
 const SessionRow = React.memo(function SessionRow({ session, projectId, isActive, onSelect, onRename, onRemove, status, now }) {
   const [hovered, setHovered] = useState(false);
+  const [dragging, setDragging] = useState(false);
+
+  // ── Drag support: allow dragging sessions to terminal area for split ────
+  const handleDragStart = useCallback((e) => {
+    e.dataTransfer.setData('application/x-zhishu-session', session.id);
+    e.dataTransfer.effectAllowed = 'move';
+    setDragging(true);
+  }, [session.id]);
+
+  const handleDragEnd = useCallback(() => {
+    setDragging(false);
+  }, []);
 
   // ── Inline rename state (lifted out of EditableLabel for direct control) ──
   // Multiple triggers can flip into edit mode: double-click, pencil button,
@@ -221,9 +250,13 @@ const SessionRow = React.memo(function SessionRow({ session, projectId, isActive
 
   return (
     <div
+      draggable
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       style={{
         ...styles.sessionRow,
         ...(isActive ? styles.sessionRowActive : hovered ? styles.sessionRowHover : {}),
+        ...(dragging ? { opacity: 0.5 } : {}),
         flexDirection: 'column',
         alignItems: 'stretch',
       }}
@@ -314,7 +347,7 @@ const SessionRow = React.memo(function SessionRow({ session, projectId, isActive
 
 // ─── Project section ──────────────────────────────────────────────────────────
 
-function ProjectSection({ project, activeSessionId, sessionStatus }) {
+function ProjectSection({ project, activeSessionId, sessionStatus, onContextMenu }) {
   const [collapsed, setCollapsed] = useState(false);
   const [hovered, setHovered] = useState(false);
   const {
@@ -357,6 +390,7 @@ function ProjectSection({ project, activeSessionId, sessionStatus }) {
         onClick={() => setCollapsed((c) => !c)}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        onContextMenu={(e) => onContextMenu?.(e, project)}
       >
         <span style={styles.chevron}>
           <IconChevron collapsed={collapsed} />
@@ -429,9 +463,19 @@ export default function Sidebar() {
     projects, activeSessionId, sessionStatus,
     createProjectFromTemplate,
     sidebarWidth, setSidebarWidth, commitSidebarWidth,
+    groups, createGroup, removeGroup, renameGroup,
+    moveProjectToGroup, toggleGroupCollapsed,
   } = useSessionStore();
 
   const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, items }
+  const [groupRenameDraft, setGroupRenameDraft] = useState(null); // { groupId, value }
+
+  // Build ordered group list with ungrouped always last
+  const orderedGroups = React.useMemo(() => getGroupOrder(groups), [groups]);
+
+  // Check if there are any user-created groups (beyond just "ungrouped")
+  const hasUserGroups = groups.some((g) => !g.system);
 
   // ── Sidebar resizer drag handling ────────────────────────────────────
   // Mouse-down on the right-edge handle starts a global mousemove listener
@@ -472,6 +516,93 @@ export default function Sidebar() {
   };
 
   const totalSessions = projects.reduce((n, p) => n + p.sessions.length, 0);
+
+  // ── Context menu helpers ──────────────────────────────────────────────
+
+  const showContextMenu = useCallback((e, items) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, items });
+  }, []);
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  // Right-click on a group header
+  const handleGroupContextMenu = useCallback((e, group) => {
+    const items = [];
+    if (!group.system) {
+      items.push({
+        label: '重命名分组',
+        icon: <IconEdit />,
+        onClick: () => setGroupRenameDraft({ groupId: group.id, value: group.name }),
+      });
+      items.push({
+        label: '删除分组',
+        icon: <IconTrash />,
+        danger: true,
+        onClick: () => removeGroup(group.id),
+      });
+    }
+    if (items.length > 0) {
+      showContextMenu(e, items);
+    }
+  }, [showContextMenu, removeGroup]);
+
+  // Right-click on a project header
+  const handleProjectContextMenu = useCallback((e, project) => {
+    const userGroups = groups.filter((g) => !g.system);
+    const items = [];
+
+    if (userGroups.length > 0) {
+      // Show "Move to group" submenu items
+      items.push({ label: '移动到分组', icon: <IconMoveToFolder />, separator: false, onClick: () => {} });
+      userGroups.forEach((g) => {
+        items.push({
+          label: `  ${g.name}`,
+          onClick: () => moveProjectToGroup(project.id, g.id),
+        });
+      });
+      // Option to move back to ungrouped
+      if (project.groupId) {
+        items.push({
+          label: '  未分组',
+          onClick: () => moveProjectToGroup(project.id, null),
+        });
+      }
+      items.push({ separator: true });
+    }
+
+    items.push({
+      label: '新建分组并移入',
+      icon: <IconPlus />,
+      onClick: async () => {
+        const name = await useSessionStore.getState().showPrompt({
+          title: '新建分组',
+          placeholder: '输入分组名称',
+          confirmLabel: '创建',
+        });
+        if (name) {
+          const newGroupId = createGroup(name);
+          moveProjectToGroup(project.id, newGroupId);
+        }
+      },
+    });
+
+    showContextMenu(e, items);
+  }, [showContextMenu, groups, moveProjectToGroup, createGroup]);
+
+  // Commit group rename
+  const commitGroupRename = useCallback(() => {
+    if (groupRenameDraft) {
+      const trimmed = groupRenameDraft.value.trim();
+      if (trimmed) {
+        renameGroup(groupRenameDraft.groupId, trimmed);
+      }
+      setGroupRenameDraft(null);
+    }
+  }, [groupRenameDraft, renameGroup]);
 
   return (
     <aside style={{ ...styles.sidebar, width: sidebarWidth }}>
@@ -578,17 +709,73 @@ export default function Sidebar() {
       <div style={styles.projectsList}>
         {projects.length === 0 ? (
           <div style={styles.emptyHint}>
-            <div style={styles.emptyIcon}>◆</div>
+            <div style={styles.emptyIcon}>&#9670;</div>
             <p style={styles.emptyText}>暂无项目</p>
             <p style={styles.emptySubText}>点击右上角 + 添加你的第一个项目</p>
           </div>
+        ) : hasUserGroups ? (
+          // Grouped view: iterate over ordered groups, render projects under each
+          orderedGroups.map((group) => {
+            const groupProjects = group.id === 'ungrouped'
+              ? projects.filter((p) => !p.groupId)
+              : projects.filter((p) => p.groupId === group.id);
+            // Hide empty ungrouped section when there are no ungrouped projects
+            if (group.id === 'ungrouped' && groupProjects.length === 0) return null;
+            const collapsed = group.collapsed || false;
+            return (
+              <div key={group.id} style={styles.groupSection}>
+                {/* Group header */}
+                <div
+                  style={styles.groupHeader}
+                  onClick={() => toggleGroupCollapsed(group.id)}
+                  onContextMenu={(e) => handleGroupContextMenu(e, group)}
+                >
+                  <span style={styles.chevron}>
+                    <IconChevron collapsed={collapsed} />
+                  </span>
+                  <span style={{ ...styles.folderIcon, color: group.color || '#666' }}>
+                    {group.system ? <IconFolderOpen /> : <IconFolder />}
+                  </span>
+                  {groupRenameDraft && groupRenameDraft.groupId === group.id ? (
+                    <input
+                      value={groupRenameDraft.value}
+                      onChange={(e) => setGroupRenameDraft({ ...groupRenameDraft, value: e.target.value })}
+                      onBlur={commitGroupRename}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitGroupRename();
+                        if (e.key === 'Escape') setGroupRenameDraft(null);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      style={styles.groupRenameInput}
+                      autoFocus
+                    />
+                  ) : (
+                    <span style={styles.groupName}>{group.name}</span>
+                  )}
+                  <span style={styles.groupCount}>{groupProjects.length}</span>
+                </div>
+                {/* Projects inside this group */}
+                {!collapsed && groupProjects.map((project) => (
+                  <ProjectSection
+                    key={project.id}
+                    project={project}
+                    activeSessionId={activeSessionId}
+                    sessionStatus={sessionStatus}
+                    onContextMenu={handleProjectContextMenu}
+                  />
+                ))}
+              </div>
+            );
+          })
         ) : (
+          // Flat view: no user groups exist, render as before
           projects.map((project) => (
             <ProjectSection
               key={project.id}
               project={project}
               activeSessionId={activeSessionId}
               sessionStatus={sessionStatus}
+              onContextMenu={handleProjectContextMenu}
             />
           ))
         )}
@@ -596,8 +783,18 @@ export default function Sidebar() {
 
       {/* ═══ Footer ══════════════════════════════════════════════════════ */}
       <div style={styles.footer}>
-        <span style={styles.footerText}>双击名称重命名</span>
+        <span style={styles.footerText}>双击名称重命名 | 右键分组</span>
       </div>
+
+      {/* Context menu portal */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={contextMenu.items}
+          onClose={closeContextMenu}
+        />
+      )}
     </aside>
   );
 }
@@ -1027,5 +1224,51 @@ const styles = {
     color: '#262626',
     fontFamily: 'system-ui',
     letterSpacing: '0.02em',
+  },
+
+  // Group section (contains group header + project sections)
+  groupSection: {
+    marginBottom: 2,
+  },
+  groupHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '6px 10px 5px 8px',
+    cursor: 'pointer',
+    borderRadius: 5,
+    margin: '0 6px',
+    transition: 'background 0.1s',
+    userSelect: 'none',
+  },
+  groupName: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#888',
+    fontFamily: 'system-ui',
+    flex: 1,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    letterSpacing: '0.02em',
+  },
+  groupCount: {
+    fontSize: 10,
+    color: '#333',
+    fontFamily: '"JetBrains Mono", monospace',
+    fontWeight: 500,
+    flexShrink: 0,
+  },
+  groupRenameInput: {
+    flex: 1,
+    background: '#1a1a1a',
+    border: '1px solid #f59e0b',
+    borderRadius: 3,
+    color: '#e2e8f0',
+    fontSize: 11,
+    fontFamily: 'system-ui',
+    padding: '1px 5px',
+    outline: 'none',
+    minWidth: 0,
   },
 };

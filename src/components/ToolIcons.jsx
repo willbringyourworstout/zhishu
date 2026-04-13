@@ -267,6 +267,18 @@ export const TreeIcon = ({ size = 14, color = 'currentColor' }) => (
   </svg>
 );
 
+// Template / prompt snippet icon (document with a sparkle, suggesting reusable text)
+export const TemplateIcon = ({ size = 14, color = 'currentColor' }) => (
+  <svg {...baseProps(size)}>
+    <g fill="none" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 4 C 4 3, 5 2, 6 2 L 14 2 L 19 7 L 19 20 C 19 21, 18 22, 17 22 L 6 22 C 5 22, 4 21, 4 20 Z" />
+      <path d="M14 2 L 14 7 L 19 7" />
+      <line x1="8" y1="12" x2="15" y2="12" />
+      <line x1="8" y1="16" x2="13" y2="16" />
+    </g>
+  </svg>
+);
+
 // Gear for settings
 export const GearIcon = ({ size = 14, color = 'currentColor' }) => (
   <svg {...baseProps(size)}>
