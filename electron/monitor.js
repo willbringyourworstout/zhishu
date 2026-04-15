@@ -134,10 +134,11 @@ async function monitorTick() {
   for (const [sessionId, ptyProc] of ptyProcesses) {
     let activeTool = findActiveAITool(ptyProc.pid, byPpid);
 
-    // Disambiguate claude vs GLM vs MiniMax via the declared launch intent
+    // Disambiguate claude vs providers that reuse the claude binary (GLM/MiniMax/Kimi/QwenCP/…)
+    // Any declared intent that isn't 'claude' itself wins over the raw process scan result.
     if (activeTool && activeTool.id === 'claude') {
       const declared = sessionLaunchedTool.get(sessionId);
-      if (declared && (declared.id === 'glm' || declared.id === 'minimax' || declared.id === 'kimi')) {
+      if (declared && declared.id !== 'claude') {
         activeTool = { id: declared.id, label: declared.label };
       }
     }

@@ -407,80 +407,72 @@ test('state machine: notification debounce is 3.5s', () => {
 
 // ─── Tests for tool disambiguation ──────────────────────────────────────────
 
-test('tool disambiguation: claude binary with declared glm intent -> glm', () => {
-  // If activeTool.id === 'claude' but sessionLaunchedTool says 'glm',
-  // the tool should be overridden to { id: 'glm', label: 'GLM Code' }.
-  const declared = { id: 'glm', label: 'GLM Code' };
-  const activeTool = { id: 'claude', label: 'Claude' };
-
-  let resolvedTool = activeTool;
-  if (activeTool.id === 'claude') {
-    if (declared && (declared.id === 'glm' || declared.id === 'minimax' || declared.id === 'kimi')) {
-      resolvedTool = { id: declared.id, label: declared.label };
-    }
+// Helper that mirrors the disambiguation logic in monitor.js monitorTick.
+// Any declared.id that isn't 'claude' wins over the raw process-scan result.
+function resolveActiveTool(activeTool, declared) {
+  if (activeTool.id === 'claude' && declared && declared.id !== 'claude') {
+    return { id: declared.id, label: declared.label };
   }
+  return activeTool;
+}
 
-  assert.equal(resolvedTool.id, 'glm');
-  assert.equal(resolvedTool.label, 'GLM Code');
+test('tool disambiguation: claude binary with declared glm intent -> glm', () => {
+  const resolved = resolveActiveTool(
+    { id: 'claude', label: 'Claude' },
+    { id: 'glm', label: 'GLM Code' },
+  );
+  assert.equal(resolved.id, 'glm');
+  assert.equal(resolved.label, 'GLM Code');
 });
 
 test('tool disambiguation: claude binary with declared minimax intent -> minimax', () => {
-  const declared = { id: 'minimax', label: 'MiniMax' };
-  const activeTool = { id: 'claude', label: 'Claude' };
-
-  let resolvedTool = activeTool;
-  if (activeTool.id === 'claude') {
-    if (declared && (declared.id === 'glm' || declared.id === 'minimax' || declared.id === 'kimi')) {
-      resolvedTool = { id: declared.id, label: declared.label };
-    }
-  }
-
-  assert.equal(resolvedTool.id, 'minimax');
-  assert.equal(resolvedTool.label, 'MiniMax');
+  const resolved = resolveActiveTool(
+    { id: 'claude', label: 'Claude' },
+    { id: 'minimax', label: 'MiniMax' },
+  );
+  assert.equal(resolved.id, 'minimax');
+  assert.equal(resolved.label, 'MiniMax');
 });
 
 test('tool disambiguation: claude binary with declared kimi intent -> kimi', () => {
-  const declared = { id: 'kimi', label: 'Kimi Code' };
-  const activeTool = { id: 'claude', label: 'Claude' };
+  const resolved = resolveActiveTool(
+    { id: 'claude', label: 'Claude' },
+    { id: 'kimi', label: 'Kimi Code' },
+  );
+  assert.equal(resolved.id, 'kimi');
+  assert.equal(resolved.label, 'Kimi Code');
+});
 
-  let resolvedTool = activeTool;
-  if (activeTool.id === 'claude') {
-    if (declared && (declared.id === 'glm' || declared.id === 'minimax' || declared.id === 'kimi')) {
-      resolvedTool = { id: declared.id, label: declared.label };
-    }
-  }
-
-  assert.equal(resolvedTool.id, 'kimi');
-  assert.equal(resolvedTool.label, 'Kimi Code');
+test('tool disambiguation: claude binary with declared qwencp intent -> qwencp', () => {
+  const resolved = resolveActiveTool(
+    { id: 'claude', label: 'Claude' },
+    { id: 'qwencp', label: 'QwenCP' },
+  );
+  assert.equal(resolved.id, 'qwencp');
+  assert.equal(resolved.label, 'QwenCP');
 });
 
 test('tool disambiguation: claude binary without declared intent -> claude', () => {
-  const declared = null;
-  const activeTool = { id: 'claude', label: 'Claude' };
+  const resolved = resolveActiveTool({ id: 'claude', label: 'Claude' }, null);
+  assert.equal(resolved.id, 'claude');
+  assert.equal(resolved.label, 'Claude');
+});
 
-  let resolvedTool = activeTool;
-  if (activeTool.id === 'claude') {
-    if (declared && (declared.id === 'glm' || declared.id === 'minimax' || declared.id === 'kimi')) {
-      resolvedTool = { id: declared.id, label: declared.label };
-    }
-  }
-
-  assert.equal(resolvedTool.id, 'claude');
-  assert.equal(resolvedTool.label, 'Claude');
+test('tool disambiguation: declared claude intent does not override -> claude', () => {
+  // Explicitly launching claude should not be overridden
+  const resolved = resolveActiveTool(
+    { id: 'claude', label: 'Claude' },
+    { id: 'claude', label: 'Claude' },
+  );
+  assert.equal(resolved.id, 'claude');
 });
 
 test('tool disambiguation: non-claude tool is never overridden', () => {
-  const declared = { id: 'glm', label: 'GLM Code' };
-  const activeTool = { id: 'codex', label: 'Codex' };
-
-  let resolvedTool = activeTool;
-  if (activeTool.id === 'claude') {
-    if (declared && (declared.id === 'glm' || declared.id === 'minimax' || declared.id === 'kimi')) {
-      resolvedTool = { id: declared.id, label: declared.label };
-    }
-  }
-
-  assert.equal(resolvedTool.id, 'codex');
+  const resolved = resolveActiveTool(
+    { id: 'codex', label: 'Codex' },
+    { id: 'glm', label: 'GLM Code' },
+  );
+  assert.equal(resolved.id, 'codex');
 });
 
 // ─── Tests for snapshotProcesses output parsing ─────────────────────────────
