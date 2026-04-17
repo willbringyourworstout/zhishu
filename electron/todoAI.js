@@ -40,9 +40,10 @@ const TODO_TOOLS = [
     input_schema: {
       type: 'object',
       properties: {
-        text:     { type: 'string', description: '待办内容' },
-        priority: { type: 'string', enum: ['none', 'low', 'medium', 'high'], description: '优先级' },
-        dueDate:  { type: 'string', description: '截止日期 YYYY-MM-DD，可不填' },
+        text:      { type: 'string', description: '待办内容' },
+        priority:  { type: 'string', enum: ['none', 'low', 'medium', 'high'], description: '优先级' },
+        dueDate:   { type: 'string', description: '截止日期 YYYY-MM-DD，可不填' },
+        projectId: { type: 'string', description: '关联项目的 ID，不填则使用当前项目' },
       },
       required: ['text'],
     },
@@ -95,9 +96,10 @@ const TODO_TOOLS = [
           items: {
             type: 'object',
             properties: {
-              text:     { type: 'string' },
-              priority: { type: 'string', enum: ['none', 'low', 'medium', 'high'] },
-              dueDate:  { type: 'string' },
+              text:      { type: 'string' },
+              priority:  { type: 'string', enum: ['none', 'low', 'medium', 'high'] },
+              dueDate:   { type: 'string' },
+              projectId: { type: 'string', description: '关联项目的 ID' },
             },
             required: ['text'],
           },
@@ -118,18 +120,27 @@ const TODO_TOOLS = [
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(todos) {
+function buildSystemPrompt(todos, projectContext) {
   const today = new Date().toISOString().slice(0, 10);
   const todoList = todos.length === 0
     ? '（当前没有待办事项）'
     : todos.map((t) => {
-        const status = t.done ? '[✓]' : '[ ]';
+        const statusStr = t.status === 'done' ? '[✓]' : t.status === 'in_progress' ? '[~]' : '[ ]';
         const priStr = (t.priority && t.priority !== 'none') ? ` [${t.priority}]` : '';
         const dueStr = t.dueDate ? ` (截止: ${t.dueDate})` : '';
-        return `${status} [${t.id}] ${t.text}${priStr}${dueStr}`;
+        const projStr = t.projectId ? ` (项目ID: ${t.projectId})` : ' (全局)';
+        return `${statusStr} [${t.id}] ${t.text}${priStr}${dueStr}${projStr}`;
       }).join('\n');
 
+  const projectSection = projectContext
+    ? `## 当前项目\n项目名称: ${projectContext.name}\n项目路径: ${projectContext.path}\n\n用户正在这个项目下工作，优先管理该项目的待办。`
+    : '';
+
+  const projectNameHint = projectContext ? projectContext.name : '全局';
+
   return `你是智枢 (ZhiShu) AI 终端管理器内置的待办助手。帮助用户高效管理开发工作的待办事项。
+
+${projectSection}
 
 ## 今日
 ${today}
@@ -143,7 +154,9 @@ ${todoList}
 - 操作时必须使用列表中 [id] 里的实际 ID，不要假设
 - 如果用户说"第一个"、"高优先级的"等相对引用，先从列表推断出 ID
 - 用中文回复，简洁友好
-- 不要重复显示整个待办列表，用户已经能看到列表了`;
+- 不要重复显示整个待办列表，用户已经能看到列表了
+- 如果用户说"加个 TODO"、"记一下"，默认添加到当前项目 (${projectNameHint})
+- 可以用 projectId 字段指定项目`;
 }
 
 // ─── Provider config resolution ───────────────────────────────────────────────
@@ -177,7 +190,7 @@ function pushToRenderer(channel, payload) {
  * Calling this while a previous request is in flight automatically aborts the
  * previous one (via the requestId monotone counter + currentReq.destroy()).
  */
-async function startChatStream({ providerId, providerConfigs, messages, todos }) {
+async function startChatStream({ providerId, providerConfigs, messages, todos, projectContext }) {
   const myId    = ++_currentRequestId;
   const isStale = () => myId !== _currentRequestId;
 
@@ -201,7 +214,7 @@ async function startChatStream({ providerId, providerConfigs, messages, todos })
 
   return new Promise((resolve, reject) => {
 
-    const systemPrompt = buildSystemPrompt(todos || []);
+    const systemPrompt = buildSystemPrompt(todos || [], projectContext || null);
     const reqBody = JSON.stringify({
       model:      cfg.model,
       max_tokens: 4096,

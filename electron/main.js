@@ -225,6 +225,16 @@ function initSystemIPC() {
     return win ? win.isAlwaysOnTop() : false;
   });
 
+  ipcMain.handle('window:toggleMaximize', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    if (win.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win.maximize();
+    }
+  });
+
   ipcMain.handle('config:load', () => loadConfig());
 
   ipcMain.handle('config:save', async (_, data) => {
@@ -284,11 +294,13 @@ app.whenReady().then(async () => {
   stopHookCleanup = initHookWatcher(handleHookStop);
 
   // Start process monitor (1.5s cadence)
+  // Pass powerMonitor reference so monitorTick can collect battery status.
+  const { powerMonitor } = require('electron');
   let monitorRunning = false;
   monitorInterval = setInterval(async () => {
     if (!monitorRunning) {
       monitorRunning = true;
-      try { await monitorTick(); } catch (_) {}
+      try { await monitorTick(powerMonitor); } catch (_) {}
       monitorRunning = false;
     }
     refreshTrayMenu(mainWindow);

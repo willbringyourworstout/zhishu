@@ -69,9 +69,28 @@ async function loadConfigAsync() {
     }
   }
 
+  // Also migrate custom provider keys
+  if (config.customProviders) {
+    const needsRewrite = Object.entries(config.customProviders).some(
+      ([, cfg]) => cfg.apiKey && cfg.apiKey !== '***'
+    );
+    if (needsRewrite) {
+      config.customProviders = await migrateKeysFromConfig(config.customProviders);
+      try {
+        fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+        try { fs.chmodSync(CONFIG_PATH, 0o600); } catch (_) {}
+      } catch (e) {
+        console.error('Failed to rewrite config after custom provider migration:', e);
+      }
+    }
+  }
+
   // Step 2: Restore real API keys from Keychain into the in-memory config
   if (config.providerConfigs) {
     config.providerConfigs = await restoreKeysIntoConfig(config.providerConfigs);
+  }
+  if (config.customProviders) {
+    config.customProviders = await restoreKeysIntoConfig(config.customProviders);
   }
 
   cachedConfig = config;
@@ -87,6 +106,10 @@ async function saveConfigAsync(data) {
 
     if (toWrite.providerConfigs) {
       toWrite.providerConfigs = await extractAndStoreKeys(toWrite.providerConfigs);
+    }
+
+    if (toWrite.customProviders) {
+      toWrite.customProviders = await extractAndStoreKeys(toWrite.customProviders);
     }
 
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(toWrite, null, 2), 'utf-8');

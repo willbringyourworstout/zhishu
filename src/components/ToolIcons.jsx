@@ -200,18 +200,6 @@ export const TreeIcon = ({ size = 14, color = 'currentColor' }) => (
   </svg>
 );
 
-// Template / prompt snippet icon (document with a sparkle, suggesting reusable text)
-export const TemplateIcon = ({ size = 14, color = 'currentColor' }) => (
-  <svg {...baseProps(size)}>
-    <g fill="none" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 4 C 4 3, 5 2, 6 2 L 14 2 L 19 7 L 19 20 C 19 21, 18 22, 17 22 L 6 22 C 5 22, 4 21, 4 20 Z" />
-      <path d="M14 2 L 14 7 L 19 7" />
-      <line x1="8" y1="12" x2="15" y2="12" />
-      <line x1="8" y1="16" x2="13" y2="16" />
-    </g>
-  </svg>
-);
-
 // Gear for settings
 export const GearIcon = ({ size = 14, color = 'currentColor' }) => (
   <svg {...baseProps(size)}>
@@ -249,8 +237,30 @@ export const TOOL_ICONS = {
   qwencp:   QwenIcon,   // Qwen CodingPlan — 复用 Qwen 图标，颜色由 toolVisuals 区分
 };
 
+// ─── Custom provider fallback icon (first letter in a circle) ────────────────
+
+export const CustomProviderIcon = ({ size = 14, color = 'currentColor', letter = '?' }) => (
+  <svg {...baseProps(size)}>
+    <circle cx="12" cy="12" r="10" fill="none" stroke={color} strokeWidth="1.6" />
+    <text
+      x="12" y="12"
+      textAnchor="middle" dominantBaseline="central"
+      fill={color}
+      fontSize="12"
+      fontWeight="600"
+      fontFamily="system-ui"
+    >
+      {letter}
+    </text>
+  </svg>
+);
+
+// ─── Unified icon lookup with custom provider fallback ────────────────────────
+
 export function ToolIcon({ id, size = 14, color = 'currentColor' }) {
   const Icon = TOOL_ICONS[id];
-  if (!Icon) return null;
-  return <Icon size={size} color={color} />;
+  if (Icon) return <Icon size={size} color={color} />;
+  // Fallback: first-letter circle icon for custom providers
+  const letter = (id || '?')[0].toUpperCase();
+  return <CustomProviderIcon size={size} color={color} letter={letter} />;
 }

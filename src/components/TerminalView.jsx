@@ -9,17 +9,17 @@ import { SearchAddon } from '@xterm/addon-search';
 // decoder has a dispose race condition that throws "_isDisposed of undefined"
 // when React 18 strict mode double-mounts the component. Re-enable when fixed upstream.
 import '@xterm/xterm/css/xterm.css';
-import { ToolIcon, BellIcon, BellMutedIcon, PinIcon, GearIcon, TreeIcon, GitBranchIcon, TemplateIcon, ChecklistIcon } from './ToolIcons';
+import { ToolIcon, BellIcon, BellMutedIcon, PinIcon, GearIcon, TreeIcon, GitBranchIcon, ChecklistIcon } from './ToolIcons';
 import { useSessionStore } from '../store/sessions';
+import ResourceBar from './ResourceBar';
 import {
   TOOL_VISUALS,
   PHASE_STANDBY,
   PHASE_REVIEW,
-  TOOL_ORDER,
-  PROVIDER_ORDER,
+  getVisualForTool,
 } from '../constants/toolVisuals';
 import { formatDuration } from '../utils/format';
-import PromptTemplate from './PromptTemplate';
+import ToolSelector from './ToolSelector';
 
 // ─── Tool definitions ────────────────────────────────────────────────────────
 // Each tool has two variants: `safe` (interactive confirmation) and `yolo`
@@ -32,7 +32,7 @@ import PromptTemplate from './PromptTemplate';
 // ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN and then call `claude`. For them to
 // work, the pty must be spawned as an interactive login shell (handled in main.js).
 
-// Visual metadata (TOOL_VISUALS) and toolbar ordering (TOOL_ORDER, PROVIDER_ORDER)
+// Visual metadata (TOOL_VISUALS) and helper functions (getVisualForTool, hexToGlow)
 // are defined in src/constants/toolVisuals.js — single source of truth.
 
 const TOOL_INFO_BY_ID = TOOL_VISUALS;
@@ -81,86 +81,6 @@ function buildLaunchCommand({ kind, tool, provider, yoloMode, continueMode, tool
   }
   return null;
 }
-
-// ─── ToolButton — unified launch button for tools and providers ────────────
-
-function ToolButton({ id, label, color, glow, isInstalled, isHovered, onHover, onClick, title }) {
-  return (
-    <button
-      onClick={(e) => onClick(e)}
-      onMouseEnter={() => onHover(id)}
-      onMouseLeave={() => onHover(null)}
-      title={title}
-      style={{
-        ...toolBtnStyles.btn,
-        borderColor: isHovered ? color : '#232323',
-        boxShadow: isHovered ? `0 0 0 1px ${color}33, 0 4px 12px ${glow}` : 'none',
-        background: isHovered ? '#161616' : '#121212',
-        opacity: isInstalled ? 1 : 0.68,
-      }}
-    >
-      <span
-        style={{
-          ...toolBtnStyles.iconBox,
-          color: isHovered || isInstalled ? color : '#666',
-          background: isHovered ? `${color}14` : '#1a1a1a',
-          borderColor: isHovered ? `${color}55` : '#262626',
-        }}
-      >
-        <ToolIcon id={id} size={14} color="currentColor" />
-      </span>
-      <span style={{ ...toolBtnStyles.label, color: isHovered ? '#eaeaea' : '#a0a0a0' }}>
-        {label}
-      </span>
-      {/* Red dot badge when not installed / not configured */}
-      {!isInstalled && (
-        <span style={toolBtnStyles.warnDot} title="未安装或未配置" />
-      )}
-    </button>
-  );
-}
-
-const toolBtnStyles = {
-  btn: {
-    position: 'relative',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 7,
-    padding: '5px 11px 5px 5px',
-    border: '1px solid #232323',
-    borderRadius: 6,
-    cursor: 'pointer',
-    transition: 'all 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
-    outline: 'none',
-    fontFamily: 'system-ui, -apple-system',
-  },
-  iconBox: {
-    width: 22,
-    height: 22,
-    borderRadius: 5,
-    border: '1px solid #262626',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transition: 'all 0.18s',
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: 500,
-    letterSpacing: '-0.01em',
-    transition: 'color 0.18s',
-  },
-  warnDot: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 7,
-    height: 7,
-    borderRadius: '50%',
-    background: '#ef4444',
-    boxShadow: '0 0 0 2px #0c0c0c, 0 0 6px rgba(239, 68, 68, 0.6)',
-  },
-};
 
 // ─── PhaseBadge — renders the current four-state phase in the monitor bar ───
 
@@ -323,11 +243,8 @@ export default function TerminalView({
   const toolCatalogRef = useRef({ tools: {}, providers: {} });
   const sessionLastToolRef = useRef(sessionLastTool);
   const autoRestoreSessionsRef = useRef(false);
-  const [hoveredTool, setHoveredTool] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [promptTemplateOpen, setPromptTemplateOpen] = useState(false);
-  const promptTemplateBtnRef = useRef(null);
 
   // ── Restore terminal focus when search bar closes ────────────────────────
   // When searchOpen transitions from true to false, the search <input> is
@@ -383,6 +300,7 @@ export default function TerminalView({
   const toolCatalog = useSessionStore((s) => s.toolCatalog);
   const toolStatus = useSessionStore((s) => s.toolStatus);
   const providerConfigs = useSessionStore((s) => s.providerConfigs);
+  const customProviders = useSessionStore((s) => s.customProviders);
   const openSettings = useSessionStore((s) => s.openSettings);
   const alwaysOnTop = useSessionStore((s) => s.alwaysOnTop);
   const toggleAlwaysOnTop = useSessionStore((s) => s.toggleAlwaysOnTop);
@@ -394,10 +312,9 @@ export default function TerminalView({
   const todoPanelOpen = useSessionStore((s) => s.todoPanelOpen);
   const toggleTodoPanel = useSessionStore((s) => s.toggleTodoPanel);
   const todoActiveCount = useSessionStore((s) => s.todos.filter((t) => !t.done).length);
-  const broadcastMode = useSessionStore((s) => s.broadcastMode);
-  const toggleBroadcastMode = useSessionStore((s) => s.toggleBroadcastMode);
   const autoRestoreSessions = useSessionStore((s) => s.autoRestoreSessions);
   const now = useSessionStore((s) => s.now);
+  const systemResources = useSessionStore((s) => s.systemResources);
 
   useEffect(() => { toolCatalogRef.current = toolCatalog; }, [toolCatalog]);
   useEffect(() => { sessionLastToolRef.current = sessionLastTool; }, [sessionLastTool]);
@@ -557,7 +474,7 @@ export default function TerminalView({
           });
         }
         // Provider path (GLM / MiniMax / Kimi)
-        else if (toolCatalogRef.current.providers?.[lastTool]) {
+        else if (toolCatalogRef.current.providers?.[lastTool] || lastTool.startsWith('custom-')) {
           const provider = useSessionStore.getState().getEffectiveProvider(lastTool);
           if (provider?.config?.apiKey) {
             cmd = buildLaunchCommand({
@@ -573,7 +490,8 @@ export default function TerminalView({
           term.write(`\r\n\x1b[2m[自动恢复 ${lastTool} 上次会话...]\x1b[0m\r\n`);
           // Pass lastTool as toolId so main process can disambiguate
           // providers (GLM/MiniMax/Kimi) from the underlying claude binary
-          const restoreLabel = TOOL_VISUALS[lastTool]?.label || lastTool;
+          const customProvs = useSessionStore.getState().customProviders;
+          const restoreLabel = getVisualForTool(lastTool, customProvs).label;
           window.electronAPI.launchTool(sessionId, cmd, lastTool, restoreLabel);
         }
       }, 1200);  // give the shell prompt time to render
@@ -696,7 +614,8 @@ export default function TerminalView({
     if (cmd) {
       // Pass providerId so main process knows GLM/MiniMax/Kimi even though the
       // process is actually `claude`
-      window.electronAPI.launchTool(sessionId, cmd, providerId, TOOL_VISUALS[providerId]?.label || provider.name);
+      const label = getVisualForTool(providerId, customProviders).label;
+      window.electronAPI.launchTool(sessionId, cmd, providerId, label);
       termRef.current?.focus();
     }
   };
@@ -799,70 +718,27 @@ export default function TerminalView({
       {/* Dedicated drag bar — a thin invisible strip at the very top of the
           terminal panel that participates in window dragging. Avoids the
           earlier issue of the entire toolbar consuming button clicks. */}
-      <div style={styles.dragBar} className="drag-region" />
+      <div
+        style={styles.dragBar}
+        className="drag-region"
+        onDoubleClick={() => window.electronAPI?.toggleMaximize()}
+      />
 
       {/* ═══ Quick-launch toolbar ═══════════════════════════════════════ */}
       <div style={styles.toolbar}>
         <div style={styles.toolbarLeft}>
-          {/* Native tools (Claude / Codex / Gemini / Qwen / OpenCode) */}
-          {TOOL_ORDER.map((id) => {
-            const tool = toolCatalog.tools?.[id];
-            if (!tool) return null;
-            const visual = TOOL_VISUALS[id];
-            const status = toolStatus[id];
-            const isHovered = hoveredTool === id;
-            const isInstalled = status?.installed !== false;
-
-            return (
-              <ToolButton
-                key={id}
-                id={id}
-                label={visual.label}
-                color={visual.color}
-                glow={visual.glow}
-                isInstalled={isInstalled}
-                isHovered={isHovered}
-                onHover={setHoveredTool}
-                onClick={(e) => handleLaunchTool(id, { continueMode: e.shiftKey })}
-                title={
-                  !isInstalled
-                    ? `${visual.label} 未安装 — 点击安装`
-                    : `启动 ${visual.label}${yoloMode ? ' (YOLO)' : ''}\n⇧ Shift+点击 → 续接上次会话`
-                }
-              />
-            );
-          })}
-
-          <div style={styles.toolGroupDivider} />
-
-          {/* Provider-based (GLM / MiniMax / Kimi) */}
-          {PROVIDER_ORDER.map((id) => {
-            const provider = toolCatalog.providers?.[id];
-            if (!provider) return null;
-            const visual = TOOL_VISUALS[id];
-            const cfg = providerConfigs[id] || {};
-            const isConfigured = !!cfg.apiKey;
-            const isHovered = hoveredTool === id;
-
-            return (
-              <ToolButton
-                key={id}
-                id={id}
-                label={visual.label}
-                color={visual.color}
-                glow={visual.glow}
-                isInstalled={isConfigured}
-                isHovered={isHovered}
-                onHover={setHoveredTool}
-                onClick={(e) => handleLaunchProvider(id, { continueMode: e.shiftKey })}
-                title={
-                  !isConfigured
-                    ? `${visual.label} 未配置 API Key — 点击打开设置`
-                    : `启动 ${visual.label}${yoloMode ? ' (YOLO)' : ''}\n⇧ Shift+点击 → 续接上次会话`
-                }
-              />
-            );
-          })}
+          <ToolSelector
+            sessionId={sessionId}
+            yoloMode={yoloMode}
+            toolCatalog={toolCatalog}
+            toolStatus={toolStatus}
+            providerConfigs={providerConfigs}
+            customProviders={customProviders}
+            sessionLastTool={sessionLastTool}
+            onLaunchTool={handleLaunchTool}
+            onLaunchProvider={handleLaunchProvider}
+            onOpenSettings={openSettings}
+          />
         </div>
 
         <div style={styles.toolbarRight}>
@@ -946,24 +822,6 @@ export default function TerminalView({
             )}
           </button>
 
-          {/* Broadcast mode toggle */}
-          <button
-            onClick={toggleBroadcastMode}
-            style={{
-              ...styles.iconOnlyBtn,
-              color: broadcastMode ? '#3b82f6' : '#666',
-              borderColor: broadcastMode ? '#1e3050' : '#1e1e1e',
-              background: broadcastMode ? '#0e1a2e' : '#121212',
-              fontSize: 11,
-              fontWeight: 700,
-              fontFamily: 'system-ui',
-              letterSpacing: '-0.02em',
-            }}
-            title={broadcastMode ? '广播模式已开启（点击关闭）' : '开启广播模式 — 向所有终端发送同一输入'}
-          >
-            ⊕
-          </button>
-
           {/* Git panel drawer toggle */}
           <button
             onClick={toggleGitPanel}
@@ -991,30 +849,6 @@ export default function TerminalView({
           >
             <TreeIcon size={14} />
           </button>
-
-          {/* Prompt template selector */}
-          <div style={{ position: 'relative' }}>
-            <button
-              ref={promptTemplateBtnRef}
-              onClick={() => setPromptTemplateOpen((v) => !v)}
-              style={{
-                ...styles.iconOnlyBtn,
-                color: promptTemplateOpen ? '#f59e0b' : '#666',
-                borderColor: promptTemplateOpen ? '#3a2e0a' : '#1e1e1e',
-                background: promptTemplateOpen ? '#1a150a' : '#121212',
-              }}
-              title="Prompt 模板"
-            >
-              <TemplateIcon size={14} />
-            </button>
-            {promptTemplateOpen && (
-              <PromptTemplate
-                sessionId={sessionId}
-                anchorRef={promptTemplateBtnRef}
-                onClose={() => setPromptTemplateOpen(false)}
-              />
-            )}
-          </div>
 
           {/* Settings */}
           <button
@@ -1058,6 +892,11 @@ export default function TerminalView({
         </div>
 
         <div style={styles.monitorSpacer} />
+
+        {/* System resource monitor (CPU / Memory / Battery) */}
+        <ResourceBar resources={systemResources} />
+
+        <div style={styles.monitorDivider} />
 
         {/* Working directory */}
         <span style={styles.cwdBadge} title={cwd}>
@@ -1119,7 +958,7 @@ export default function TerminalView({
           ref={containerRef}
           style={{
             ...styles.terminalColumn,
-            minWidth: splitMode ? 350 : 400,
+            minWidth: splitMode ? 250 : 300,
           }}
           onClick={() => termRef.current?.focus()}
           onDragOver={(e) => {
@@ -1170,30 +1009,31 @@ const styles = {
     borderBottom: '1px solid #1a1a1a',
     flexShrink: 0,
     minHeight: 46,
+    overflow: 'hidden',
   },
   toolbarLeft: {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
     flexWrap: 'wrap',
+    overflow: 'hidden',
+    // Allow shrinking so toolbarRight buttons stay visible
+    flexShrink: 1,
+    minWidth: 0,
   },
   toolbarRight: {
     display: 'flex',
     alignItems: 'center',
-    gap: 10,
+    gap: 6,
     flexShrink: 0,
-  },
-  toolGroupDivider: {
-    width: 1,
-    height: 20,
-    background: '#1a1a1a',
-    margin: '0 3px',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
   },
   yoloSwitch: {
     display: 'flex',
     alignItems: 'center',
-    gap: 5,
-    padding: '5px 10px',
+    gap: 4,
+    padding: '5px 7px',
     border: '1px solid #252525',
     borderRadius: 5,
     cursor: 'pointer',
@@ -1203,6 +1043,7 @@ const styles = {
     fontSize: 10,
     fontWeight: 700,
     letterSpacing: '0.08em',
+    flexShrink: 0,
   },
   yoloDot: {
     fontSize: 8,
@@ -1223,10 +1064,12 @@ const styles = {
     fontSize: 11,
     color: '#555',
     fontFamily: '"JetBrains Mono", monospace',
-    maxWidth: 260,
+    maxWidth: 200,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    flexShrink: 1,
+    minWidth: 0,
   },
   cwdIcon: {
     color: '#333',
@@ -1239,7 +1082,7 @@ const styles = {
     border: '1px solid #1e1e1e',
     borderRadius: 5,
     cursor: 'pointer',
-    padding: '4px 8px',
+    padding: '4px 6px',
     fontSize: 13,
     lineHeight: 1,
     transition: 'all 0.18s ease',
@@ -1247,8 +1090,9 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 28,
+    minWidth: 26,
     minHeight: 26,
+    flexShrink: 0,
   },
 
   // ── Monitor bar (second row below toolbar) ─────────────────────────────
@@ -1263,11 +1107,13 @@ const styles = {
     minHeight: 26,
     fontSize: 10,
     fontFamily: '"JetBrains Mono", monospace',
+    overflow: 'hidden',
   },
   monitorSegment: {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 0,
   },
   monitorLabel: {
     fontSize: 9,
@@ -1377,7 +1223,7 @@ const styles = {
   },
   terminalColumn: {
     flex: 1,
-    minWidth: 400,
+    minWidth: 300,
     overflow: 'hidden',
     padding: '8px 10px 2px',
     background: '#0d0d0d',

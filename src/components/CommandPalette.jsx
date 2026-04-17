@@ -3,7 +3,7 @@
  *
  * Sections:
  *   • Sessions    — all sessions across all projects; click to activate
- *   • Actions     — panel toggles, settings, broadcast, etc.
+ *   • Actions     — panel toggles, settings, etc.
  *
  * Keyboard:
  *   Cmd+P        — toggle open/close (handled in App.jsx)
@@ -44,8 +44,6 @@ export default function CommandPalette() {
   const toggleFileTree        = useSessionStore((s) => s.toggleFileTree);
   const toggleGitPanel        = useSessionStore((s) => s.toggleGitPanel);
   const toggleTodoPanel       = useSessionStore((s) => s.toggleTodoPanel);
-  const toggleBroadcastMode   = useSessionStore((s) => s.toggleBroadcastMode);
-  const broadcastMode         = useSessionStore((s) => s.broadcastMode);
   const toggleYoloMode        = useSessionStore((s) => s.toggleYoloMode);
   const yoloMode              = useSessionStore((s) => s.yoloMode);
   const addSessionToActiveProject = useSessionStore((s) => s.addSessionToActiveProject);
@@ -122,12 +120,6 @@ export default function CommandPalette() {
         action: () => { toggleTodoPanel(); closeCommandPalette(); },
       },
       {
-        id: 'action-broadcast',
-        label: broadcastMode ? '关闭广播模式' : '开启广播模式',
-        hint: '多终端同步输入',
-        action: () => { toggleBroadcastMode(); closeCommandPalette(); },
-      },
-      {
         id: 'action-yolo',
         label: yoloMode ? '关闭 YOLO 模式' : '开启 YOLO 模式',
         hint: '跳过确认提示',
@@ -142,10 +134,10 @@ export default function CommandPalette() {
     return result;
   }, [
     projects, sessionStatus, activeSessionId,
-    broadcastMode, yoloMode,
+    yoloMode,
     setActiveSession, closeCommandPalette,
     openSettings, toggleFileTree, toggleGitPanel, toggleTodoPanel,
-    toggleBroadcastMode, toggleYoloMode, addSessionToActiveProject,
+    toggleYoloMode, addSessionToActiveProject,
   ]);
 
   // ── Filter items by query ───────────────────────────────────────────────────

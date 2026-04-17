@@ -10,7 +10,6 @@ import ToastStack from './components/ToastStack';
 import SettingsModal from './components/SettingsModal';
 import PromptDialog from './components/PromptDialog';
 import CommandPalette from './components/CommandPalette';
-import BroadcastBar from './components/BroadcastBar';
 import { useSessionStore } from './store/sessions';
 import { playNotificationSound } from './utils/sound';
 
@@ -209,13 +208,15 @@ export default function App() {
   // ── Panel width competition protection + split auto-close ────────────────
   // Uses ResizeObserver on termArea so Sidebar drag-resize also triggers it.
   //
-  // When termArea width < 350px, close panels in priority order (one per resize):
-  //   1. PreviewPanel (most recently added)
-  //   2. FileTreePanel
-  //   3. GitPanel
-  //   4. SplitPane (last resort)
-  //
-  // When termArea width < 700px and split is active, close the split.
+  // Two-level threshold:
+  //   - When termArea width < 500px, close panels in priority order (one per tick):
+  //       1. PreviewPanel
+  //       2. FileTreePanel
+  //       3. TodoPanel
+  //       4. GitPanel
+  //       5. SplitPane (last resort)
+  //   - When termArea width < 350px, also close split as a last resort.
+  //   - When termArea width < 700px and split is active, close the split.
   useEffect(() => {
     if (!termAreaRef.current) return;
 
@@ -229,13 +230,21 @@ export default function App() {
         rafId = null;
         const width = latestWidth;
 
-        if (width < 350) {
+        // Below 500px: start closing panels to give terminal breathing room
+        if (width < 500) {
           if (previewPanelOpen) { closeFilePreview(); return; }
           if (fileTreeOpen)     { closeFileTree();    return; }
-          if (gitPanelOpen)     { closeGitPanel();    return; }
           if (todoPanelOpen)    { closeTodoPanel();   return; }
-          if (splitPane)        { closeSplit();        return; }
-        } else if (width < 700 && splitPane) {
+          if (gitPanelOpen)     { closeGitPanel();    return; }
+        }
+
+        // Below 350px: close split too (if panels are all already closed)
+        if (width < 350) {
+          if (splitPane) { closeSplit(); return; }
+        }
+
+        // Split pane needs at least 700px to be usable
+        if (width < 700 && splitPane) {
           closeSplit();
         }
       });
@@ -369,8 +378,6 @@ export default function App() {
             </div>
           )}
 
-          {/* Broadcast bar — only visible when broadcastMode is active */}
-          <BroadcastBar />
         </div>
 
         {/* Top-level panels — sit to the right of termArea, each independently toggled */}

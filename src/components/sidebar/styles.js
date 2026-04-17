@@ -3,7 +3,7 @@
 const styles = {
   sidebar: {
     minWidth: 180,
-    maxWidth: 420,
+    maxWidth: 'min(420px, 30vw)',
     background: '#0b0b0b',
     borderRight: '1px solid #161616',
     display: 'flex',

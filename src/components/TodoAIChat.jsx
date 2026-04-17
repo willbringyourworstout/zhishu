@@ -108,9 +108,12 @@ const bubbleStyles = {
 
 export default function TodoAIChat() {
   const todos           = useSessionStore((s) => s.todos);
+  const projects        = useSessionStore((s) => s.projects);
   const providerConfigs = useSessionStore((s) => s.providerConfigs);
   const todoChatProvider  = useSessionStore((s) => s.todoChatProvider);
   const setTodoChatProvider = useSessionStore((s) => s.setTodoChatProvider);
+  const todoFocusProjectId = useSessionStore((s) => s.todoFocusProjectId);
+  const activeSessionId   = useSessionStore((s) => s.activeSessionId);
 
   // TODO store actions (tool execution)
   const addTodo       = useSessionStore((s) => s.addTodo);
@@ -118,6 +121,15 @@ export default function TodoAIChat() {
   const deleteTodo    = useSessionStore((s) => s.deleteTodo);
   const toggleTodoDone = useSessionStore((s) => s.toggleTodoDone);
   const clearDoneTodos = useSessionStore((s) => s.clearDoneTodos);
+
+  // Derive current focus project for AI context
+  const focusProject = useMemo(() => {
+    if (todoFocusProjectId) {
+      return projects.find(p => p.id === todoFocusProjectId) || null;
+    }
+    // Fallback: derive from activeSessionId
+    return projects.find(p => p.sessions.some(s => s.id === activeSessionId)) || null;
+  }, [todoFocusProjectId, projects, activeSessionId]);
 
   const [availableProviders, setAvailableProviders] = useState([]);
   const [messages, setMessages]   = useState([]); // display messages
@@ -170,8 +182,9 @@ export default function TodoAIChat() {
   const executeTool = useCallback((toolName, input) => {
     switch (toolName) {
       case 'add_todo':
-        addTodo(input.text, input.priority || 'none', input.dueDate || null);
-        return `已添加待办: "${input.text}"`;
+        addTodo(input.text, input.priority || 'none', input.dueDate || null,
+                input.projectId || focusProject?.id || null);
+        return `已添加待办: "${input.text}"${input.projectId ? ` (项目: ${input.projectId})` : focusProject ? ` (项目: ${focusProject.name})` : ''}`;
 
       case 'update_todo':
         updateTodo(input.id, {
@@ -191,7 +204,8 @@ export default function TodoAIChat() {
 
       case 'bulk_create_todos': {
         const items = input.todos || [];
-        items.forEach((item) => addTodo(item.text, item.priority || 'none', item.dueDate || null));
+        items.forEach((item) => addTodo(item.text, item.priority || 'none', item.dueDate || null,
+                                        item.projectId || focusProject?.id || null));
         return `已批量添加 ${items.length} 条待办`;
       }
 
@@ -202,7 +216,7 @@ export default function TodoAIChat() {
       default:
         return `未知工具: ${toolName}`;
     }
-  }, [addTodo, updateTodo, deleteTodo, toggleTodoDone, clearDoneTodos]);
+  }, [addTodo, updateTodo, deleteTodo, toggleTodoDone, clearDoneTodos, focusProject]);
 
   // ── Start / continue a chat turn ────────────────────────────────────────────
 
@@ -219,13 +233,18 @@ export default function TodoAIChat() {
       { role: 'assistant', content: '', streaming: true, id: `stream-${Date.now()}` },
     ]);
 
+    const projectContext = focusProject
+      ? { id: focusProject.id, name: focusProject.name, path: focusProject.path }
+      : null;
+
     window.electronAPI.startTodoChat({
       providerId:     todoChatProvider,
       providerConfigs,
       messages:       msgs,
       todos,
+      projectContext,
     });
-  }, [todoChatProvider, providerConfigs, todos]);
+  }, [todoChatProvider, providerConfigs, todos, focusProject]);
 
   // Keep ref in sync so setTimeout inside setState always calls the latest version
   runChatRef.current = runChat;

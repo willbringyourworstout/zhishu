@@ -39,10 +39,47 @@ const TOOL_LABELS = Object.fromEntries(
 const PHASE_STANDBY = '#64748b';  // idle_no_instruction
 const PHASE_REVIEW  = '#22c55e';  // awaiting_review
 
-// ─── Toolbar ordering ───────────────────────────────────────────────────────
+// ─── Preset color palette (12 colors for custom provider selection) ──────────
 
-const TOOL_ORDER     = ['claude', 'codex', 'gemini', 'qwen', 'opencode'];
-const PROVIDER_ORDER = ['glm', 'minimax', 'kimi', 'qwencp'];
+const PRESET_COLORS = [
+  '#d97706', '#16a34a', '#3b82f6', '#ef4444',
+  '#a855f7', '#06b6d4', '#ec4899', '#f97316',
+  '#6366f1', '#0d9488', '#eab308', '#64748b',
+];
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Convert a HEX color to its glow equivalent (rgba with 0.35 alpha). */
+function hexToGlow(hex) {
+  if (!hex || hex[0] !== '#') return 'rgba(100,116,139,0.35)';
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},0.35)`;
+}
+
+/**
+ * Unified visual lookup: built-in tools first, then custom providers, then fallback.
+ *
+ * @param {string} toolId
+ * @param {Object} customProviders - Map of custom provider objects from store
+ * @returns {{ label: string, color: string, glow: string }}
+ */
+function getVisualForTool(toolId, customProviders = {}) {
+  // 1. Built-in TOOL_VISUALS
+  if (TOOL_VISUALS[toolId]) return TOOL_VISUALS[toolId];
+  // 2. Custom Provider
+  const custom = customProviders[toolId];
+  if (custom) {
+    return {
+      label: custom.name,
+      color: custom.color,
+      glow: hexToGlow(custom.color),
+    };
+  }
+  // 3. Fallback
+  return { label: toolId, color: '#64748b', glow: 'rgba(100,116,139,0.35)' };
+}
 
 // ─── Exports ────────────────────────────────────────────────────────────────
 
@@ -52,6 +89,7 @@ export {
   TOOL_LABELS,
   PHASE_STANDBY,
   PHASE_REVIEW,
-  TOOL_ORDER,
-  PROVIDER_ORDER,
+  PRESET_COLORS,
+  hexToGlow,
+  getVisualForTool,
 };

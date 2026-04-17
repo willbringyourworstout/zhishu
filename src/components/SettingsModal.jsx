@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useSessionStore } from '../store/sessions';
-import { TOOL_COLORS } from '../constants/toolVisuals';
+import { TOOL_COLORS, PRESET_COLORS } from '../constants/toolVisuals';
 import styles from './settings/styles';
 import TabButton from './settings/TabButton';
 import ToolRow from './settings/ToolRow';
 import ProviderCard from './settings/ProviderCard';
+import CustomProviderCard from './settings/CustomProviderCard';
 import AgentConfigTab from './settings/AgentConfigTab';
 import AppearanceTab from './settings/AppearanceTab';
 import { version } from '../../package.json';
@@ -22,6 +23,7 @@ export default function SettingsModal() {
     settingsOpen, closeSettings,
     toolCatalog, toolStatus, refreshToolStatus,
     providerConfigs, updateProviderConfig,
+    customProviders, addCustomProvider, updateCustomProvider, removeCustomProvider,
     activeSessionId,
     theme, setTheme,
     getActiveSession,
@@ -117,6 +119,68 @@ export default function SettingsModal() {
                   color={TOOL_COLORS[provider.id] || '#888'}
                 />
               ))}
+
+              {/* Custom endpoint section */}
+              {Object.values(customProviders).length > 0 && (
+                <div style={{ marginTop: 8, marginBottom: 4, fontSize: 10, color: '#444', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                  Custom Anthropic Endpoints
+                </div>
+              )}
+              {Object.values(customProviders).map((cp) => (
+                <CustomProviderCard
+                  key={cp.id}
+                  provider={cp}
+                  onUpdate={(patch) => updateCustomProvider(cp.id, patch)}
+                  onRemove={() => removeCustomProvider(cp.id)}
+                />
+              ))}
+
+              {/* Add custom endpoint button */}
+              <button
+                onClick={() => {
+                  addCustomProvider({
+                    name: 'New Endpoint',
+                    baseUrl: '',
+                    apiKey: '',
+                    color: PRESET_COLORS[Object.keys(customProviders).length % PRESET_COLORS.length],
+                    opusModel: '',
+                    sonnetModel: '',
+                    haikuModel: '',
+                  });
+                }}
+                style={{
+                  background: '#151510',
+                  border: '1px dashed #3a3a1a',
+                  borderRadius: 7,
+                  color: '#8a8a44',
+                  padding: '10px 16px',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontFamily: 'system-ui',
+                  fontWeight: 500,
+                  width: '100%',
+                  textAlign: 'left',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginTop: 8,
+                  transition: 'all 0.15s',
+                }}
+                title="Add a custom Anthropic-format API endpoint"
+              >
+                <span style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 4,
+                  border: '1px dashed #555',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 14,
+                  flexShrink: 0,
+                }}>+</span>
+                Add Custom Anthropic Endpoint
+              </button>
             </div>
           )}
 

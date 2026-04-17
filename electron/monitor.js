@@ -23,6 +23,7 @@ const {
   cleanupSession,
 } = require('./pty');
 const { TOOL_CATALOG } = require('./tools');
+const { collectResourceSnapshot } = require('./resourceMonitor');
 
 // Silence threshold (ms) after which we consider an AI tool "done responding".
 const IDLE_SILENCE_MS = 3000;
@@ -47,7 +48,9 @@ const PS_MAX_BUFFER = 32 * 1024 * 1024;
 
 function snapshotProcesses() {
   return new Promise((resolve) => {
-    execFile('ps', ['-axo', 'pid=,ppid=,command='],
+    // Extended ps call: time= (accumulated CPU time) and rss= (resident set size in KB)
+    // enable per-process CPU delta and memory aggregation in resourceMonitor.
+    execFile('ps', ['-axo', 'pid=,ppid=,time=,rss=,command='],
       { maxBuffer: PS_MAX_BUFFER },
       (err, stdout) => {
         // Node.js throws 'maxBuffer exceeded' when output exceeds the limit.
@@ -79,9 +82,13 @@ function snapshotProcesses() {
         const lines = stdout.split('\n');
 
         for (const line of lines) {
-          const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+          // Parse: pid ppid time rss command
+          // Fields are space-separated; time is "HH:MM:SS.ss" or "MM:SS.ss";
+          // command may contain spaces. We match the first 4 numeric/time fields
+          // and treat the rest as command.
+          const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\d+)\s+(.*)$/);
           if (!m) continue;
-          const proc = { pid: +m[1], ppid: +m[2], command: m[3] };
+          const proc = { pid: +m[1], ppid: +m[2], time: m[3], rss: +m[4], command: m[5] };
           byPid.set(proc.pid, proc);
           if (!byPpid.has(proc.ppid)) byPpid.set(proc.ppid, []);
           byPpid.get(proc.ppid).push(proc);
@@ -154,11 +161,30 @@ function computePhase({ hasUserInput, isOutputting }) {
   return isOutputting ? 'running' : 'awaiting_review';
 }
 
-async function monitorTick() {
+/**
+ * Run one monitoring tick.
+ *
+ * @param {{ getBatteryStatus?: Function }} [powerMonitor] - Electron powerMonitor reference
+ */
+async function monitorTick(powerMonitor) {
   if (ptyProcesses.size === 0) return;
 
-  const { ok, byPpid } = await snapshotProcesses();
+  const { ok, byPpid, byPid } = await snapshotProcesses();
   if (!ok) return;
+
+  // Collect and broadcast system resource data (CPU, memory, battery).
+  // This piggybacks on the same tick -- no additional syscall needed.
+  try {
+    const resourcePayload = collectResourceSnapshot(byPid, powerMonitor);
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('system:resources', resourcePayload);
+    }
+  } catch (e) {
+    // Resource collection failure must not break the core monitoring FSM.
+    console.warn('[monitor] Resource snapshot failed:', e.message);
+  }
+
   const now = Date.now();
 
   for (const [sessionId, ptyProc] of ptyProcesses) {

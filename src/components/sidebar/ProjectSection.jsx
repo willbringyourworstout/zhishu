@@ -13,7 +13,7 @@ function ProjectSection({ project, activeSessionId, sessionStatus, onContextMenu
   const {
     addSession, removeSession, renameSession, removeProject, renameProject,
     setActiveSession, updateProjectPath,
-    now,
+    now, todos, setTodoFocusProject,
   } = useSessionStore();
 
   const handlePickDir = async (e) => {
@@ -47,7 +47,10 @@ function ProjectSection({ project, activeSessionId, sessionStatus, onContextMenu
           ...styles.projectHeader,
           background: hovered ? '#141414' : 'transparent',
         }}
-        onClick={() => setCollapsed((c) => !c)}
+        onClick={() => {
+          setCollapsed((c) => !c);
+          setTodoFocusProject(project.id);
+        }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         onContextMenu={(e) => onContextMenu?.(e, project)}
@@ -61,6 +64,31 @@ function ProjectSection({ project, activeSessionId, sessionStatus, onContextMenu
           onCommit={(name) => renameProject(project.id, name)}
           style={styles.projectName}
         />
+        {/* TODO badge */}
+        {(() => {
+          const count = todos.filter(t => t.projectId === project.id && t.status !== 'done').length;
+          if (count === 0) return null;
+          const today = new Date().toISOString().slice(0, 10);
+          const hasOverdue = todos.some(t =>
+            t.projectId === project.id && t.status !== 'done' && t.dueDate &&
+            t.dueDate < today
+          );
+          return (
+            <span style={{
+              fontSize: 10,
+              fontWeight: 600,
+              padding: '1px 5px',
+              borderRadius: 10,
+              background: hasOverdue ? '#3a1a1a' : '#1a2a3a',
+              color: hasOverdue ? '#ef4444' : '#60a5fa',
+              border: `1px solid ${hasOverdue ? '#5a2828' : '#2a4a6a'}`,
+              flexShrink: 0,
+              fontFamily: 'system-ui, -apple-system',
+            }}>
+              {count}
+            </span>
+          );
+        })()}
         {hovered && (
           <div style={styles.projectActions} onClick={(e) => e.stopPropagation()}>
             <button

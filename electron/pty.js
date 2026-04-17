@@ -288,9 +288,10 @@ function initPtyIPC() {
     // triggered the event.  Only applies to tools that run the claude binary:
     //   - native: 'claude'
     //   - providers using claude binary: 'glm', 'minimax', 'kimi', 'qwencp'
+    //   - custom providers: 'custom-*' (user-defined Anthropic-format endpoints)
     // The session ID is a UUID v4 (alphanumeric + hyphens — safe in single-quoted shell strings).
     const CLAUDE_BASED = new Set(['claude', 'glm', 'minimax', 'kimi', 'qwencp']);
-    const finalCommand = (toolId && CLAUDE_BASED.has(toolId))
+    const finalCommand = (toolId && (CLAUDE_BASED.has(toolId) || toolId.startsWith('custom-')))
       ? `AI_TERMINAL_SESSION_ID='${sessionId}' ${command}`
       : command;
 

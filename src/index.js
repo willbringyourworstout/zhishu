@@ -204,6 +204,12 @@ globalStyle.textContent = `
 
   /* Repo card hover (multi-repo git scan view) */
   .repo-card:hover { background: #131313; border-color: #1e1e1e; }
+
+  /* Todo in_progress subtle border pulse */
+  @keyframes todo-pulse {
+    0%, 100% { border-left-color: #f59e0b; }
+    50%      { border-left-color: #f59e0b50; }
+  }
 `;
 document.head.appendChild(globalStyle);
 

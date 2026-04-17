@@ -14,13 +14,14 @@ const SERVICE_NAME = 'ai-terminal-manager';
 const ALLOWED_ACCOUNTS = new Set(['glm', 'minimax', 'kimi', 'qwencp']);
 
 /**
- * Validate that an account name is a known provider ID.
+ * Validate that an account name is a known provider ID or a custom provider ID.
  * Prevents arbitrary Keychain reads/writes via crafted input.
  */
 function validateAccount(account) {
-  if (!ALLOWED_ACCOUNTS.has(account)) {
-    throw new Error(`Invalid keychain account: ${account}`);
-  }
+  if (ALLOWED_ACCOUNTS.has(account)) return;
+  // Allow custom provider IDs (format: custom-<timestamp>-<random>)
+  if (account && account.startsWith('custom-')) return;
+  throw new Error(`Invalid keychain account: ${account}`);
 }
 
 /**

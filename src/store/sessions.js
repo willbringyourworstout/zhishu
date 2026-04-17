@@ -132,16 +132,6 @@ export const PROJECT_TEMPLATES = [
   },
 ];
 
-// ─── Built-in prompt templates (immutable, cannot be edited/deleted) ─────────
-
-const BUILTIN_PROMPT_TEMPLATES = [
-  { id: 'builtin-review', title: '审查代码', content: '请审查以下代码，关注安全性、性能和可维护性', builtin: true },
-  { id: 'builtin-test', title: '写测试', content: '请为以下代码编写单元测试，覆盖主要逻辑和边界情况', builtin: true },
-  { id: 'builtin-explain', title: '解释代码', content: '请解释以下代码的功能和设计意图', builtin: true },
-  { id: 'builtin-fix', title: '修复 Bug', content: '以下代码有 bug，请分析原因并提供修复方案', builtin: true },
-  { id: 'builtin-optimize', title: '优化性能', content: '请分析以下代码的性能瓶颈并提供优化建议', builtin: true },
-];
-
 // ─── Store ───────────────────────────────────────────────────────────────────
 
 export const useSessionStore = create((set, get) => ({
@@ -170,11 +160,12 @@ export const useSessionStore = create((set, get) => ({
   // Schema: { glm: { apiKey, baseUrl, opusModel, sonnetModel, haikuModel }, ... }
   providerConfigs: {},
 
+  // Custom Anthropic-format endpoint providers (user-defined)
+  // Schema: { 'custom-xxx': { id, name, baseUrl, apiKey, opusModel, sonnetModel, haikuModel, color } }
+  customProviders: {},
+
   // Settings modal open state
   settingsOpen: false,
-
-  // Prompt templates (builtin + user-created)
-  promptTemplates: [],
 
   // File tree drawer (right side panel)
   fileTreeOpen: false,
@@ -202,19 +193,21 @@ export const useSessionStore = create((set, get) => ({
   // ── TODO panel ────────────────────────────────────────────────────────────
   todoPanelOpen: false,
   todoPanelWidth: 300,
-  // todos: [{ id, text, done, priority: 'none'|'low'|'medium'|'high', createdAt, doneAt, dueDate }]
+  // todos: [{ id, text, done, priority, createdAt, doneAt, dueDate, projectId, status }]
   todos: [],
   // YYYY-MM-DD of the last day the daily-review reminder was shown, to avoid repeat toasts
   todoLastReminderDate: null,
   // Currently selected AI provider ID for the TODO chat panel
   todoChatProvider: null,
+  // TODO panel focus: which project's todos to show (null = show all)
+  todoFocusProjectId: null,
 
   // ── Command Palette ──────────────────────────────────────────────────────
   commandPaletteOpen: false,
 
-  // ── Broadcast mode ────────────────────────────────────────────────────────
-  // When true, input sent from BroadcastBar is forwarded to ALL active sessions
-  broadcastMode: false,
+  // ── System resources (CPU / Memory / Battery) ───────────────────────────
+  // Updated every 1.5s via IPC push from main process resourceMonitor.
+  systemResources: null,
 
   // Group system: project folders for organizing projects
   // groups: [{ id, name, color?, system?, collapsed? }]
@@ -237,15 +230,27 @@ export const useSessionStore = create((set, get) => ({
       const theme = resolveTheme(config.theme);
       document.documentElement.setAttribute('data-theme', theme);
 
-      // Merge builtin templates with user-created custom templates from config
-      const customTemplates = (config.promptTemplates || []).filter((t) => !t.builtin);
-      const promptTemplates = [...BUILTIN_PROMPT_TEMPLATES, ...customTemplates];
-
       // Resolve groups from config, ensuring "ungrouped" is always present
       const groups = resolveGroups(config.groups);
-      const todos = config.todos || [];
+      let todos = config.todos || [];
+
+      // ── Data migration: add projectId + status to legacy todos ──────────
+      const validProjectIds = new Set((projects || []).map((p) => p.id));
+      todos = todos.map((t) => ({
+        ...t,
+        projectId: t.projectId ?? null,
+        status: t.status ?? (t.done ? 'done' : 'todo'),
+      }));
+      // Orphan cleanup: todos referencing deleted projects -> null (global)
+      todos.forEach((t) => {
+        if (t.projectId && !validProjectIds.has(t.projectId)) {
+          t.projectId = null;
+        }
+      });
+
       const todoLastReminderDate = config.todoLastReminderDate || null;
       const todoChatProvider = config.todoChatProvider || null;
+      const todoFocusProjectId = config.todoFocusProjectId || null;
 
       set({
         projects,
@@ -254,7 +259,7 @@ export const useSessionStore = create((set, get) => ({
         notificationsEnabled: config.notificationsEnabled !== false,
         autoRestoreSessions: config.autoRestoreSessions !== false,  // default true
         providerConfigs: config.providerConfigs || {},
-        promptTemplates,
+        customProviders: config.customProviders || {},
         toolCatalog: catalog || { tools: {}, providers: {} },
         theme,
         sidebarWidth: config.sidebarWidth || 236,
@@ -266,6 +271,7 @@ export const useSessionStore = create((set, get) => ({
         todos,
         todoLastReminderDate,
         todoChatProvider,
+        todoFocusProjectId,
         isLoading: false,
       });
 
@@ -282,6 +288,11 @@ export const useSessionStore = create((set, get) => ({
       // Sync initial prefs and session names to main process
       window.electronAPI.setNotificationsEnabled(config.notificationsEnabled !== false);
       get().syncSessionNamesToMain();
+
+      // Subscribe to system resource updates (CPU, memory, battery)
+      window.electronAPI.onSystemResources((data) => {
+        get().updateSystemResources(data);
+      });
 
       // Probe installed tools in the background — UI reacts once resolved
       get().refreshToolStatus();
@@ -302,6 +313,7 @@ export const useSessionStore = create((set, get) => ({
       yoloMode,
       notificationsEnabled,
       providerConfigs,
+      customProviders,
       theme,
       sidebarWidth,
       gitPanelWidth,
@@ -309,11 +321,11 @@ export const useSessionStore = create((set, get) => ({
       previewPanelWidth,
       todoPanelWidth,
       autoRestoreSessions,
-      promptTemplates,
       groups,
       todos,
       todoLastReminderDate,
       todoChatProvider,
+      todoFocusProjectId,
     } = get();
     window.electronAPI.saveConfig({
       projects,
@@ -321,14 +333,14 @@ export const useSessionStore = create((set, get) => ({
       yoloMode,
       notificationsEnabled,
       providerConfigs,
+      customProviders,
       theme, sidebarWidth, gitPanelWidth, fileTreeWidth, previewPanelWidth,
       todoPanelWidth, autoRestoreSessions,
-      // Only persist custom templates (builtins are reconstructed from code)
-      promptTemplates: promptTemplates.filter((t) => !t.builtin),
       groups,
       todos,
       todoLastReminderDate,
       todoChatProvider,
+      todoFocusProjectId,
     });
   },
 
@@ -338,8 +350,9 @@ export const useSessionStore = create((set, get) => ({
   },
 
   setSidebarWidth: (width) => {
-    // Clamp to sensible bounds
-    const clamped = Math.max(180, Math.min(420, width));
+    // Clamp to sensible bounds, including a 30vw responsive cap
+    const viewMax = typeof window !== 'undefined' ? window.innerWidth * 0.3 : 420;
+    const clamped = Math.max(180, Math.min(420, viewMax, width));
     set({ sidebarWidth: clamped });
   },
 
@@ -386,21 +399,77 @@ export const useSessionStore = create((set, get) => ({
   },
 
   // Merge persisted user override with catalog defaults (read-only view)
+  // Also checks customProviders for user-defined Anthropic-format endpoints.
   getEffectiveProvider: (providerId) => {
-    const { toolCatalog, providerConfigs } = get();
+    const { toolCatalog, providerConfigs, customProviders } = get();
+
+    // 1. Built-in Provider
     const def = toolCatalog.providers?.[providerId];
-    if (!def) return null;
-    const userCfg = providerConfigs[providerId] || {};
-    return {
-      ...def,
-      config: {
-        apiKey: userCfg.apiKey || '',
-        baseUrl: userCfg.baseUrl || def.defaults.baseUrl,
-        opusModel: userCfg.opusModel || def.defaults.opusModel,
-        sonnetModel: userCfg.sonnetModel || def.defaults.sonnetModel,
-        haikuModel: userCfg.haikuModel || def.defaults.haikuModel,
+    if (def) {
+      const userCfg = providerConfigs[providerId] || {};
+      return {
+        ...def,
+        config: {
+          apiKey: userCfg.apiKey || '',
+          baseUrl: userCfg.baseUrl || def.defaults.baseUrl,
+          opusModel: userCfg.opusModel || def.defaults.opusModel,
+          sonnetModel: userCfg.sonnetModel || def.defaults.sonnetModel,
+          haikuModel: userCfg.haikuModel || def.defaults.haikuModel,
+        },
+      };
+    }
+
+    // 2. Custom Provider
+    const custom = customProviders[providerId];
+    if (custom) {
+      return {
+        id: custom.id,
+        name: custom.name,
+        baseTool: 'claude',
+        configurable: true,
+        config: {
+          apiKey: custom.apiKey || '',
+          baseUrl: custom.baseUrl,
+          opusModel: custom.opusModel,
+          sonnetModel: custom.sonnetModel,
+          haikuModel: custom.haikuModel,
+        },
+      };
+    }
+
+    return null;
+  },
+
+  // ── Custom Provider CRUD ────────────────────────────────────────────────
+
+  addCustomProvider: ({ name, baseUrl, apiKey, color, opusModel, sonnetModel, haikuModel }) => {
+    const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    set((s) => ({
+      customProviders: {
+        ...s.customProviders,
+        [id]: { id, name, baseUrl, apiKey, color, opusModel, sonnetModel, haikuModel },
       },
-    };
+    }));
+    get().persist();
+    return id;
+  },
+
+  updateCustomProvider: (id, patch) => {
+    set((s) => ({
+      customProviders: {
+        ...s.customProviders,
+        [id]: { ...(s.customProviders[id] || {}), ...patch },
+      },
+    }));
+    get().persist();
+  },
+
+  removeCustomProvider: (id) => {
+    set((s) => {
+      const { [id]: _, ...rest } = s.customProviders;
+      return { customProviders: rest };
+    });
+    get().persist();
   },
 
   // ── Window controls ───────────────────────────────────────────────────
@@ -524,30 +593,6 @@ export const useSessionStore = create((set, get) => ({
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
   },
 
-  // ── Prompt template CRUD ───────────────────────────────────────────────────
-  addPromptTemplate: (template) => {
-    const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const newTemplate = { ...template, id, builtin: false };
-    set((s) => ({ promptTemplates: [...s.promptTemplates, newTemplate] }));
-    get().persist();
-  },
-
-  removePromptTemplate: (id) => {
-    const template = get().promptTemplates.find((t) => t.id === id);
-    if (template?.builtin) return; // Cannot delete builtin templates
-    set((s) => ({ promptTemplates: s.promptTemplates.filter((t) => t.id !== id) }));
-    get().persist();
-  },
-
-  updatePromptTemplate: (id, updates) => {
-    const template = get().promptTemplates.find((t) => t.id === id);
-    if (template?.builtin) return; // Cannot edit builtin templates
-    set((s) => ({
-      promptTemplates: s.promptTemplates.map((t) => (t.id === id ? { ...t, ...updates } : t)),
-    }));
-    get().persist();
-  },
-
   // ── Group CRUD ───────────────────────────────────────────────────────────
 
   createGroup: (name) => {
@@ -663,11 +708,16 @@ export const useSessionStore = create((set, get) => ({
       const nextStatus = Object.fromEntries(
         Object.entries(s.sessionStatus).filter(([sessionId]) => !removedSet.has(sessionId))
       );
+      // Orphan cleanup: move this project's todos to global (projectId = null)
+      const nextTodos = s.todos.map((t) =>
+        t.projectId === projectId ? { ...t, projectId: null } : t
+      );
       return {
         projects: nextProjects,
         activeSessionId: getFallbackActiveSessionId(nextProjects, removedIds, s.activeSessionId),
         sessionStatus: nextStatus,
         toasts: s.toasts.filter((toast) => !toast.sessionId || !removedSet.has(toast.sessionId)),
+        todos: nextTodos,
       };
     });
     get().persist();
@@ -856,10 +906,14 @@ export const useSessionStore = create((set, get) => ({
   toggleTodoPanel: () => set((s) => ({ todoPanelOpen: !s.todoPanelOpen })),
   closeTodoPanel: () => set({ todoPanelOpen: false }),
 
-  addTodo: (text, priority = 'none', dueDate = null) => {
+  addTodo: (text, priority = 'none', dueDate = null, projectId = undefined) => {
     const id = `todo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const resolvedProjectId = projectId !== undefined ? projectId : get().todoFocusProjectId;
     set((s) => ({
-      todos: [...s.todos, { id, text, done: false, priority, createdAt: Date.now(), doneAt: null, dueDate }],
+      todos: [...s.todos, {
+        id, text, done: false, priority, createdAt: Date.now(), doneAt: null, dueDate,
+        projectId: resolvedProjectId, status: 'todo',
+      }],
     }));
     get().persist();
   },
@@ -879,14 +933,16 @@ export const useSessionStore = create((set, get) => ({
   toggleTodoDone: (id) => {
     set((s) => ({
       todos: s.todos.map((t) =>
-        t.id === id ? { ...t, done: !t.done, doneAt: !t.done ? Date.now() : null } : t
+        t.id === id
+          ? { ...t, done: !t.done, doneAt: !t.done ? Date.now() : null, status: !t.done ? 'done' : 'todo' }
+          : t
       ),
     }));
     get().persist();
   },
 
   clearDoneTodos: () => {
-    set((s) => ({ todos: s.todos.filter((t) => !t.done) }));
+    set((s) => ({ todos: s.todos.filter((t) => t.status !== 'done') }));
     get().persist();
   },
 
@@ -901,11 +957,32 @@ export const useSessionStore = create((set, get) => ({
     get().persist();
   },
 
+  setTodoStatus: (id, status) => {
+    set((s) => ({
+      todos: s.todos.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              status,
+              done: status === 'done',
+              doneAt: status === 'done' ? Date.now() : null,
+            }
+          : t
+      ),
+    }));
+    get().persist();
+  },
+
+  setTodoFocusProject: (projectId) => {
+    set({ todoFocusProjectId: projectId });
+    get().persist();
+  },
+
   // ── Command Palette ──────────────────────────────────────────────────────
   toggleCommandPalette: () => set((s) => ({ commandPaletteOpen: !s.commandPaletteOpen })),
   closeCommandPalette: () => set({ commandPaletteOpen: false }),
 
-  // ── Broadcast mode ────────────────────────────────────────────────────────
-  toggleBroadcastMode: () => set((s) => ({ broadcastMode: !s.broadcastMode })),
-  disableBroadcastMode: () => set({ broadcastMode: false }),
+  // ── System resources ─────────────────────────────────────────────────────
+  updateSystemResources: (data) => set({ systemResources: data }),
+
 }));

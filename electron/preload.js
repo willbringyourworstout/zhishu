@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Window controls ─────────────────────────────────────────────────────
   toggleAlwaysOnTop: () => ipcRenderer.invoke('window:toggleAlwaysOnTop'),
   getAlwaysOnTop: () => ipcRenderer.invoke('window:isAlwaysOnTop'),
+  toggleMaximize: () => ipcRenderer.invoke('window:toggleMaximize'),
 
   // ── Tool catalog & installation ─────────────────────────────────────────
   getToolCatalog: () => ipcRenderer.invoke('tools:catalog'),
@@ -104,6 +105,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.send('git:runInSession', { sessionId, command }),
 
   // ── Todo AI Chat ─────────────────────────────────────────────────────────
+  // System resource monitoring (CPU, memory, battery) — pushed from main 1.5s tick
+  onSystemResources: (callback) => {
+    const handler = (_, data) => callback(data);
+    ipcRenderer.on('system:resources', handler);
+    return () => ipcRenderer.removeListener('system:resources', handler);
+  },
   // Returns array of provider IDs that have API keys in Keychain
   getAvailableAIProviders: (providerConfigs) =>
     ipcRenderer.invoke('todo:providers:available', providerConfigs),

@@ -85,10 +85,12 @@ export default function SplitContainer({ primaryId, secondaryId, direction, rati
         style={{
           flexBasis: primaryPercent,
           flexGrow: 0,
-          flexShrink: 0,
+          flexShrink: 1,
           overflow: 'hidden',
           outline: activeSessionId === primaryId ? '1px solid #2a2a2a' : '1px solid transparent',
           outlineOffset: -1,
+          minWidth: isHorizontal ? 250 : 0,
+          minHeight: isHorizontal ? 0 : 200,
         }}
         onClick={handlePrimaryClick}
       >
@@ -120,6 +122,8 @@ export default function SplitContainer({ primaryId, secondaryId, direction, rati
           overflow: 'hidden',
           outline: activeSessionId === secondaryId ? '1px solid #2a2a2a' : '1px solid transparent',
           outlineOffset: -1,
+          minWidth: isHorizontal ? 250 : 0,
+          minHeight: isHorizontal ? 0 : 200,
         }}
         onClick={handleSecondaryClick}
       >

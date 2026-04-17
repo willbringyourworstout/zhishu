@@ -30,7 +30,7 @@ function formatDue(dueDate) {
 
 // ─── TodoItem ────────────────────────────────────────────────────────────────
 
-function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
+function TodoItem({ todo, onToggle, onDelete, onUpdate, onSetStatus }) {
   const [hovered, setHovered] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(todo.text);
@@ -38,6 +38,7 @@ function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
 
   const due = formatDue(todo.dueDate);
   const pri = PRIORITY[todo.priority] || PRIORITY.none;
+  const isInProgress = todo.status === 'in_progress';
 
   const startEdit = () => {
     if (todo.done) return;
@@ -64,26 +65,39 @@ function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
     <div
       style={{
         ...itemStyles.row,
-        background: hovered ? '#161616' : 'transparent',
-        borderLeft: `2px solid ${todo.priority !== 'none' ? pri.color : 'transparent'}`,
+        background: hovered ? '#161616'
+          : isInProgress ? 'rgba(245, 158, 11, 0.04)'
+          : 'transparent',
+        borderLeft: `2px solid ${
+          isInProgress ? '#f59e0b'
+          : todo.priority !== 'none' ? pri.color
+          : 'transparent'
+        }`,
         opacity: todo.done ? 0.5 : 1,
+        ...(isInProgress ? { animation: 'todo-pulse 2.5s ease-in-out infinite' } : {}),
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Checkbox */}
-      <button
-        onClick={() => onToggle(todo.id)}
-        style={{
-          ...itemStyles.checkbox,
-          borderColor: todo.done ? pri.color : '#3a3a3a',
-          background: todo.done ? `${pri.color}20` : 'transparent',
-          flexShrink: 0,
-        }}
-        title={todo.done ? '标记为未完成' : '标记为完成'}
-      >
-        {todo.done && <span style={itemStyles.checkmark}>✓</span>}
-      </button>
+      {/* Checkbox / Progress indicator */}
+      {isInProgress ? (
+        <div style={itemStyles.progressDot} title="正在进行中">
+          <span style={itemStyles.progressSpinner} />
+        </div>
+      ) : (
+        <button
+          onClick={() => onToggle(todo.id)}
+          style={{
+            ...itemStyles.checkbox,
+            borderColor: todo.done ? pri.color : '#3a3a3a',
+            background: todo.done ? `${pri.color}20` : 'transparent',
+            flexShrink: 0,
+          }}
+          title={todo.done ? '标记为未完成' : '标记为完成'}
+        >
+          {todo.done && <span style={itemStyles.checkmark}>✓</span>}
+        </button>
+      )}
 
       {/* Content */}
       <div style={itemStyles.content}>
@@ -101,7 +115,7 @@ function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
             style={{
               ...itemStyles.text,
               textDecoration: todo.done ? 'line-through' : 'none',
-              color: todo.done ? '#444' : '#d4d4d4',
+              color: todo.done ? '#444' : isInProgress ? '#f0f0f0' : '#d4d4d4',
             }}
             onDoubleClick={startEdit}
             title={todo.done ? '' : '双击编辑'}
@@ -128,6 +142,15 @@ function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
       {/* Hover actions */}
       {hovered && (
         <div style={itemStyles.actions}>
+          {!todo.done && (
+            <button
+              onClick={() => onSetStatus(todo.id, isInProgress ? 'todo' : 'in_progress')}
+              style={itemStyles.actionBtn}
+              title={isInProgress ? '暂停任务' : '开始任务'}
+            >
+              {isInProgress ? '⏸' : '▶'}
+            </button>
+          )}
           {!todo.done && (
             <button onClick={startEdit} style={itemStyles.actionBtn} title="编辑">
               ✎
@@ -177,6 +200,24 @@ const itemStyles = {
     lineHeight: 1,
     fontWeight: 700,
   },
+  progressDot: {
+    width: 16,
+    height: 16,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    marginTop: 2,
+  },
+  progressSpinner: {
+    display: 'inline-block',
+    width: 12,
+    height: 12,
+    border: '2px solid #f59e0b40',
+    borderTopColor: '#f59e0b',
+    borderRadius: '50%',
+    animation: 'spin 0.8s linear infinite',
+  },
   content: {
     flex: 1,
     minWidth: 0,
@@ -224,12 +265,89 @@ const itemStyles = {
   },
 };
 
+// ─── Project selector bar ────────────────────────────────────────────────────
+
+function ProjectSelector({ projects, todos, todoFocusProjectId, onSelect }) {
+  return (
+    <div style={selectorStyles.bar}>
+      <button
+        onClick={() => onSelect(null)}
+        style={{
+          ...selectorStyles.btn,
+          background: todoFocusProjectId === null ? '#1a2840' : 'transparent',
+          borderBottom: todoFocusProjectId === null ? '1.5px solid #60a5fa' : '1.5px solid transparent',
+          color: todoFocusProjectId === null ? '#b0c4de' : '#555',
+        }}
+      >
+        全部
+      </button>
+      {projects.map((p) => {
+        const count = todos.filter(t => t.projectId === p.id && t.status !== 'done').length;
+        const isActive = todoFocusProjectId === p.id;
+        return (
+          <button
+            key={p.id}
+            onClick={() => onSelect(p.id)}
+            style={{
+              ...selectorStyles.btn,
+              background: isActive ? '#1a2840' : 'transparent',
+              borderBottom: isActive ? '1.5px solid #60a5fa' : '1.5px solid transparent',
+              color: isActive ? '#b0c4de' : '#555',
+            }}
+          >
+            {p.name}
+            {count > 0 && (
+              <span style={{
+                ...selectorStyles.count,
+                color: isActive ? '#60a5fa' : '#3d3d3d',
+              }}>
+                {count}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const selectorStyles = {
+  bar: {
+    display: 'flex',
+    gap: 0,
+    padding: '0 10px',
+    overflowX: 'auto',
+    flexShrink: 0,
+    borderBottom: '1px solid #1a1a1a',
+  },
+  btn: {
+    background: 'transparent',
+    border: 'none',
+    borderBottom: '1.5px solid transparent',
+    fontSize: 11,
+    padding: '6px 8px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 3,
+    fontFamily: 'system-ui, -apple-system',
+    whiteSpace: 'nowrap',
+    transition: 'color 0.12s, background 0.12s, border-color 0.12s',
+    borderRadius: 0,
+  },
+  count: {
+    fontSize: 9.5,
+    fontWeight: 600,
+  },
+};
+
 // ─── AddForm ─────────────────────────────────────────────────────────────────
 
-function AddForm({ onAdd, onClose }) {
+function AddForm({ onAdd, onClose, projects, todoFocusProjectId }) {
   const [text, setText] = useState('');
   const [priority, setPriority] = useState('none');
   const [dueDate, setDueDate] = useState('');
+  const [selectedProjectId, setSelectedProjectId] = useState(todoFocusProjectId || '');
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -239,7 +357,7 @@ function AddForm({ onAdd, onClose }) {
   const handleAdd = () => {
     const t = text.trim();
     if (!t) return;
-    onAdd(t, priority, dueDate || null);
+    onAdd(t, priority, dueDate || null, selectedProjectId || null);
     setText('');
     setPriority('none');
     setDueDate('');
@@ -274,6 +392,17 @@ function AddForm({ onAdd, onClose }) {
           <option value="low">低优先级</option>
           <option value="medium">中优先级</option>
           <option value="high">高优先级</option>
+        </select>
+        <select
+          value={selectedProjectId}
+          onChange={(e) => setSelectedProjectId(e.target.value)}
+          style={addFormStyles.select}
+          title="关联项目"
+        >
+          <option value="">（全局）</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
         </select>
         <input
           type="date"
@@ -326,7 +455,7 @@ const addFormStyles = {
   },
   row: {
     display: 'flex',
-    gap: 6,
+    gap: 4,
   },
   select: {
     flex: 1,
@@ -334,11 +463,12 @@ const addFormStyles = {
     border: '1px solid #2e2e2e',
     borderRadius: 4,
     color: '#a0a0a0',
-    fontSize: 11.5,
+    fontSize: 11,
     padding: '4px 6px',
     outline: 'none',
     fontFamily: 'system-ui, -apple-system',
     cursor: 'pointer',
+    minWidth: 0,
   },
   dateInput: {
     flex: 1,
@@ -346,10 +476,11 @@ const addFormStyles = {
     border: '1px solid #2e2e2e',
     borderRadius: 4,
     color: '#a0a0a0',
-    fontSize: 11.5,
+    fontSize: 11,
     padding: '4px 6px',
     outline: 'none',
     fontFamily: 'system-ui, -apple-system',
+    minWidth: 0,
   },
   actions: {
     display: 'flex',
@@ -386,11 +517,15 @@ export default function TodoPanel() {
   const todoPanelOpen    = useSessionStore((s) => s.todoPanelOpen);
   const closeTodoPanel   = useSessionStore((s) => s.closeTodoPanel);
   const todos            = useSessionStore((s) => s.todos);
+  const projects         = useSessionStore((s) => s.projects);
   const addTodo          = useSessionStore((s) => s.addTodo);
   const updateTodo       = useSessionStore((s) => s.updateTodo);
   const deleteTodo       = useSessionStore((s) => s.deleteTodo);
   const toggleTodoDone   = useSessionStore((s) => s.toggleTodoDone);
+  const setTodoStatus    = useSessionStore((s) => s.setTodoStatus);
   const clearDoneTodos   = useSessionStore((s) => s.clearDoneTodos);
+  const setTodoFocusProject = useSessionStore((s) => s.setTodoFocusProject);
+  const todoFocusProjectId  = useSessionStore((s) => s.todoFocusProjectId);
   const todoPanelWidth   = useSessionStore((s) => s.todoPanelWidth);
   const setPanelWidth    = useSessionStore((s) => s.setPanelWidth);
   const commitPanelWidth = useSessionStore((s) => s.commitPanelWidth);
@@ -431,35 +566,44 @@ export default function TodoPanel() {
     return () => resizer.removeEventListener('mousedown', onMouseDown);
   }, [setPanelWidth, commitPanelWidth]);
 
-  const handleAdd = useCallback((text, priority, dueDate) => {
-    addTodo(text, priority, dueDate);
+  const handleAdd = useCallback((text, priority, dueDate, projectId) => {
+    addTodo(text, priority, dueDate, projectId);
   }, [addTodo]);
 
   if (!todoPanelOpen) return null;
 
+  // ── Filter by project ─────────────────────────────────────────────────────
+  const projectFiltered = todoFocusProjectId !== null
+    ? todos.filter((t) => t.projectId === todoFocusProjectId)
+    : todos;
+
   // ── Derived data ──────────────────────────────────────────────────────────
-  const activeCount  = todos.filter((t) => !t.done).length;
-  const doneCount    = todos.filter((t) => t.done).length;
-  const totalCount   = todos.length;
-  const overdueCount = todos.filter((t) => {
-    if (t.done || !t.dueDate) return false;
+  const activeCount  = projectFiltered.filter((t) => t.status !== 'done').length;
+  const doneCount    = projectFiltered.filter((t) => t.status === 'done').length;
+  const totalCount   = projectFiltered.length;
+  const overdueCount = projectFiltered.filter((t) => {
+    if (t.status === 'done' || !t.dueDate) return false;
     return t.dueDate < new Date().toISOString().slice(0, 10);
   }).length;
 
-  const filtered = todos.filter((t) => {
-    if (filter === 'active') return !t.done;
-    if (filter === 'done')   return t.done;
+  const filtered = projectFiltered.filter((t) => {
+    if (filter === 'active') return t.status !== 'done';
+    if (filter === 'done')   return t.status === 'done';
     return true;
   });
 
-  // Sort: undone first (overdue → high → medium → low → none), then by createdAt; done last
+  // Sort: in_progress first, then undone (overdue -> high -> medium -> low -> none), then by createdAt; done last
   const pOrder = { high: 0, medium: 1, low: 2, none: 3 };
   const today  = new Date().toISOString().slice(0, 10);
   const sorted = [...filtered].sort((a, b) => {
-    if (a.done !== b.done) return a.done ? 1 : -1;
+    if (a.status === 'done' && b.status !== 'done') return 1;
+    if (a.status !== 'done' && b.status === 'done') return -1;
+    // in_progress floats to top among undone items
+    if (a.status === 'in_progress' && b.status !== 'in_progress') return -1;
+    if (a.status !== 'in_progress' && b.status === 'in_progress') return 1;
     // Overdue items float to top
-    const aOv = !a.done && a.dueDate && a.dueDate < today;
-    const bOv = !b.done && b.dueDate && b.dueDate < today;
+    const aOv = a.status !== 'done' && a.dueDate && a.dueDate < today;
+    const bOv = b.status !== 'done' && b.dueDate && b.dueDate < today;
     if (aOv !== bOv) return aOv ? -1 : 1;
     const pa = pOrder[a.priority] ?? 3;
     const pb = pOrder[b.priority] ?? 3;
@@ -517,6 +661,14 @@ export default function TodoPanel() {
         </div>
       </div>
 
+      {/* ── Project selector ── */}
+      <ProjectSelector
+        projects={projects}
+        todos={todos}
+        todoFocusProjectId={todoFocusProjectId}
+        onSelect={setTodoFocusProject}
+      />
+
       {/* ── Progress bar ── */}
       {totalCount > 0 && (
         <div style={panelStyles.progressArea}>
@@ -538,10 +690,10 @@ export default function TodoPanel() {
       {/* ── Add form ── */}
       {showAddForm && (
         <AddForm
-          onAdd={(text, priority, dueDate) => {
-            handleAdd(text, priority, dueDate);
-          }}
+          onAdd={handleAdd}
           onClose={() => setShowAddForm(false)}
+          projects={projects}
+          todoFocusProjectId={todoFocusProjectId}
         />
       )}
 
@@ -590,6 +742,7 @@ export default function TodoPanel() {
               onToggle={toggleTodoDone}
               onDelete={deleteTodo}
               onUpdate={updateTodo}
+              onSetStatus={setTodoStatus}
             />
           ))
         )}
