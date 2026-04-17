@@ -54,6 +54,7 @@ const { createTray, refreshTrayMenu, destroyTray } = require('./tray');
 const { initToolsIPC } = require('./tools');
 const { initTodoAIIPC } = require('./todoAI');
 const { ensureClaudeHook, initHookWatcher } = require('./hookWatcher');
+const { initTerminalBufferIPC } = require('./terminalBuffer');
 
 let mainWindow = null;
 let hasShownHideHint = false;
@@ -287,6 +288,7 @@ app.whenReady().then(async () => {
   initFsIPC();
   initToolsIPC();
   initTodoAIIPC();
+  initTerminalBufferIPC();
 
   // Claude Code Stop hook: merge hook config into ~/.claude/settings.json,
   // then watch /tmp for signal files for precise notification timing.

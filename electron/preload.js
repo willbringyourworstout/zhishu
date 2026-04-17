@@ -105,6 +105,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   gitRunInSession: (sessionId, command) =>
     ipcRenderer.send('git:runInSession', { sessionId, command }),
 
+  // ── Terminal buffer persistence ────────────────────────────────────────────
+  saveTerminalBuffer: (sessionId, content) =>
+    ipcRenderer.send('buffer:save', { sessionId, content }),
+  loadTerminalBuffer: (sessionId) =>
+    ipcRenderer.invoke('buffer:load', sessionId),
+
   // ── Todo AI Chat ─────────────────────────────────────────────────────────
   // System resource monitoring (CPU, memory, battery) — pushed from main 1.5s tick
   onSystemResources: (callback) => {

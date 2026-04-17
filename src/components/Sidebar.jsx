@@ -59,6 +59,7 @@ export default function Sidebar() {
   const allStatuses = Object.values(sessionStatus || {});
   const runningCount = allStatuses.filter((s) => s?.phase === 'running').length;
   const reviewCount  = allStatuses.filter((s) => s?.phase === 'awaiting_review').length;
+  const idleCount    = allStatuses.filter((s) => s?.phase === 'idle_no_instruction').length;
   const totalSessions = projects.reduce((n, p) => n + p.sessions.length, 0);
 
   const handleAddProject = async () => {
@@ -245,6 +246,13 @@ export default function Sidebar() {
             {reviewCount}
           </span>
           <span style={styles.statLabel}>待审</span>
+        </div>
+        <div style={styles.statDivider} />
+        <div style={styles.statItem}>
+          <span style={{ ...styles.statValue, color: idleCount > 0 ? '#3b82f6' : '#3a3a3a' }}>
+            {idleCount}
+          </span>
+          <span style={styles.statLabel}>待命</span>
         </div>
       </div>
 

@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { SearchAddon } from '@xterm/addon-search';
+import { SerializeAddon } from '@xterm/addon-serialize';
 // NOTE: ImageAddon disabled due to xterm.js issue #4793 — its WASM-based sixel
 // decoder has a dispose race condition that throws "_isDisposed of undefined"
 // when React 18 strict mode double-mounts the component. Re-enable when fixed upstream.
@@ -232,6 +233,7 @@ export default function TerminalView({
   const wrapperRef = useRef(null);
   const fitAddonRef = useRef(null);
   const searchAddonRef = useRef(null);
+  const serializeRef = useRef(null);
   const webglAddonRef = useRef(null);
   const unsubDataRef = useRef(null);
   const unsubExitRef = useRef(null);
@@ -364,11 +366,13 @@ export default function TerminalView({
     const webLinksAddon = new WebLinksAddon();
     const unicode11Addon = new Unicode11Addon();
     const searchAddon = new SearchAddon();
+    const serializeAddon = new SerializeAddon();
 
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
     term.loadAddon(unicode11Addon);
     term.loadAddon(searchAddon);
+    term.loadAddon(serializeAddon);
 
     // Activate Unicode 11 character-width handling (proper emoji widths)
     term.unicode.activeVersion = '11';
@@ -416,6 +420,7 @@ export default function TerminalView({
     termRef.current = term;
     fitAddonRef.current = fitAddon;
     searchAddonRef.current = searchAddon;
+    serializeRef.current = serializeAddon;
     webglAddonRef.current = webglAddon;
     ptyReadyRef.current = false;
     pendingInputRef.current = [];
@@ -453,6 +458,22 @@ export default function TerminalView({
     unsubExitRef.current = window.electronAPI.onPtyExit(sessionId, () => {
       term.write('\r\n\x1b[2m[Process exited]\x1b[0m\r\n');
     });
+
+    // ─── Restore saved terminal buffer ────────────────────────────────
+    // On app restart the pty is freshly created and xterm has no history.
+    // Write back the previously serialized content so the user sees their
+    // last session output immediately.
+    if (!result?.reused) {
+      try {
+        const savedBuffer = await window.electronAPI.loadTerminalBuffer(sessionId);
+        if (savedBuffer) {
+          term.write(savedBuffer);
+          term.write('\r\n\x1b[2m--- 上次会话内容已恢复 ---\x1b[0m\r\n');
+        }
+      } catch (_) {
+        // Buffer load failed silently — not critical.
+      }
+    }
 
     // ─── Auto-restore last AI session ──────────────────────────────────
     // If this session previously ran an AI tool AND auto-restore is on,
@@ -561,6 +582,18 @@ export default function TerminalView({
       ptyReadyRef.current = false;
       pendingInputRef.current = [];
 
+      // Serialize terminal buffer before disposing, so it can be restored on restart.
+      if (serializeRef.current && termRef.current) {
+        try {
+          const content = serializeRef.current.serialize();
+          if (content) {
+            window.electronAPI?.saveTerminalBuffer(sessionId, content);
+          }
+        } catch (_) {
+          // Serialization failed — not critical, buffer will simply be empty on restart.
+        }
+      }
+
       // Dispose WebGL addon BEFORE the terminal — its dispose chain is fragile
       // and can throw "_isDisposed of undefined" if disposed via AddonManager
       // after the terminal core has already cleaned up some internals.
@@ -577,6 +610,7 @@ export default function TerminalView({
       termRef.current = null;
       fitAddonRef.current = null;
       searchAddonRef.current = null;
+      serializeRef.current = null;
       webglAddonRef.current = null;
       initializedRef.current = false;
     };
