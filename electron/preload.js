@@ -90,6 +90,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── HEIC → PNG conversion via macOS `sips` ─────────────────────────────
   convertHeic: (sourcePath) => ipcRenderer.invoke('fs:convertHeic', sourcePath),
   normalizeImage: (sourcePath) => ipcRenderer.invoke('fs:normalizeImage', sourcePath),
+  // ── 外部文件导入（Finder 拖入） ─────────────────────────────────────────
+  importExternal: (sources, targetDir) =>
+    ipcRenderer.invoke('fs:importExternal', { sources, targetDir }),
 
   // ── Git operations ──────────────────────────────────────────────────────
   gitStatus: (cwd) => ipcRenderer.invoke('git:status', cwd),
@@ -99,4 +102,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
   gitScanRepos: (rootDir) => ipcRenderer.invoke('git:scanRepos', rootDir),
   gitRunInSession: (sessionId, command) =>
     ipcRenderer.send('git:runInSession', { sessionId, command }),
+
+  // ── Todo AI Chat ─────────────────────────────────────────────────────────
+  // Returns array of provider IDs that have API keys in Keychain
+  getAvailableAIProviders: (providerConfigs) =>
+    ipcRenderer.invoke('todo:providers:available', providerConfigs),
+  // Start a streaming AI chat request (results arrive via onTodoStream* listeners)
+  startTodoChat: (opts) => ipcRenderer.send('todo:chat:start', opts),
+  // Abort current in-flight request
+  abortTodoChat: () => ipcRenderer.send('todo:chat:abort'),
+  // Subscribe to streaming text chunks — returns unsubscribe fn
+  onTodoStreamChunk: (callback) => {
+    const handler = (_, data) => callback(data);
+    ipcRenderer.on('todo:stream:chunk', handler);
+    return () => ipcRenderer.removeListener('todo:stream:chunk', handler);
+  },
+  // Subscribe to stream completion — returns unsubscribe fn
+  onTodoStreamDone: (callback) => {
+    const handler = (_, data) => callback(data);
+    ipcRenderer.on('todo:stream:done', handler);
+    return () => ipcRenderer.removeListener('todo:stream:done', handler);
+  },
+  // Subscribe to stream error — returns unsubscribe fn
+  onTodoStreamError: (callback) => {
+    const handler = (_, data) => callback(data);
+    ipcRenderer.on('todo:stream:error', handler);
+    return () => ipcRenderer.removeListener('todo:stream:error', handler);
+  },
 });

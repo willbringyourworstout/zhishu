@@ -39,10 +39,14 @@ export default function ContextMenu({ x, y, items, onClose }) {
   return ReactDOM.createPortal(
     <>
       {/* Click-outside backdrop — ignore right-click button so the same right-click
-          that just opened the menu doesn't immediately close it on mouseup. */}
+          that just opened the menu doesn't immediately close it on mouseup.
+          onContextMenu: only preventDefault to suppress the native menu;
+          do NOT call onClose() here — the contextmenu event fires right after
+          the mousedown that opened this menu (on the same mouseup), which would
+          cause the menu to flash and disappear instantly. */}
       <div
         onMouseDown={(e) => { if (e.button === 0) onClose(); }}
-        onContextMenu={(e) => { e.preventDefault(); onClose(); }}
+        onContextMenu={(e) => { e.preventDefault(); }}
         style={styles.backdrop}
       />
       {/* Menu */}

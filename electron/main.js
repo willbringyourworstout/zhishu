@@ -19,18 +19,46 @@
 const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
 const path = require('path');
 const os = require('os');
+const { execFile } = require('child_process');
+
+// ─── Fix PATH when launched from Finder/Dock (packaged macOS app) ─────────────
+// Apps launched outside a terminal inherit a minimal PATH (/usr/bin:/bin:...),
+// missing Homebrew (/opt/homebrew/bin), nvm, bun, ~/.local/bin, etc. This
+// breaks `which <tool>` checks and any spawned CLI that lives in user PATH.
+//
+// Historically there were two PATH-fix routines that duplicated work:
+//   1. A synchronous IIFE (fixPathForPackagedMacOS) using execFileSync
+//   2. An async loadUserPathFromShell() using execFile (called in app.whenReady)
+// Both read the login shell PATH, but with different merge strategies and
+// triggering conditions.  In packaged mode both ran (wasting one shell spawn);
+// in dev mode only the async one ran.
+//
+// We keep ONLY the async loadUserPathFromShell (below, line ~251) because it:
+//   - Uses a smarter merge strategy (prepends only new segments)
+//   - Runs at the same app-ready point, avoiding race windows
+//   - Works for both dev and packaged modes
+//
+// For packaged macOS apps that need pty.spawn() *before* app-ready completes,
+// a minimal synchronous PATH fix is still needed.  Currently pty creation
+// happens inside initPtyIPC() which runs after loadUserPathFromShell(), so
+// the synchronous IIFE is unnecessary and has been removed.  If a future
+// feature requires an early PATH (before app-ready), re-introduce a minimal
+// sync fix here.
 
 const { loadConfigAsync, loadConfig, saveConfigAsync } = require('./config');
 const { loadPtyModule, initPtyIPC, ptyProcesses, killPtyTree, cleanupAll } = require('./pty');
-const { monitorTick } = require('./monitor');
+const { monitorTick, handleHookStop } = require('./monitor');
 const { initGitIPC } = require('./git');
 const { initFsIPC } = require('./fs-handlers');
 const { createTray, refreshTrayMenu, destroyTray } = require('./tray');
 const { initToolsIPC } = require('./tools');
+const { initTodoAIIPC } = require('./todoAI');
+const { ensureClaudeHook, initHookWatcher } = require('./hookWatcher');
 
 let mainWindow = null;
 let hasShownHideHint = false;
 let monitorInterval = null;
+let stopHookCleanup = null;
 
 // ─── Window bounds persistence helpers ──────────────────────────────────────
 
@@ -212,7 +240,30 @@ function initSystemIPC() {
 
 // ─── App lifecycle ────────────────────────────────────────────────────────
 
+async function loadUserPathFromShell() {
+  const shell = process.env.SHELL || '/bin/zsh';
+  return new Promise((resolve) => {
+    execFile(shell, ['-lc', 'printf "%s\\n" "$PATH"'], { timeout: 3000 }, (err, stdout) => {
+      if (err) {
+        console.warn('[main] Failed to load PATH from login shell:', err.message);
+        return resolve();
+      }
+      const shellPath = (stdout || '').trim();
+      if (!shellPath) return resolve();
+      // Merge: prepend shell PATH segments that are not already in process.env.PATH
+      const currentPaths = (process.env.PATH || '').split(':').filter(Boolean);
+      const newPaths = shellPath.split(':').filter((p) => p && !currentPaths.includes(p));
+      if (newPaths.length > 0) {
+        process.env.PATH = [...newPaths, ...currentPaths].join(':');
+        console.log('[main] Merged login shell PATH segments:', newPaths.join(':'));
+      }
+      resolve();
+    });
+  });
+}
+
 app.whenReady().then(async () => {
+  await loadUserPathFromShell();
   loadPtyModule();
   await loadConfigAsync();
 
@@ -225,6 +276,12 @@ app.whenReady().then(async () => {
   initGitIPC();
   initFsIPC();
   initToolsIPC();
+  initTodoAIIPC();
+
+  // Claude Code Stop hook: merge hook config into ~/.claude/settings.json,
+  // then watch /tmp for signal files for precise notification timing.
+  ensureClaudeHook();
+  stopHookCleanup = initHookWatcher(handleHookStop);
 
   // Start process monitor (1.5s cadence)
   let monitorRunning = false;
@@ -259,6 +316,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   app.isQuitting = true;
   if (monitorInterval) { clearInterval(monitorInterval); monitorInterval = null; }
+  if (stopHookCleanup) { stopHookCleanup(); stopHookCleanup = null; }
   cleanupAll();
   destroyTray();
 });

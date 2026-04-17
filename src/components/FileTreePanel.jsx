@@ -1,31 +1,46 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import ContextMenu from './ContextMenu';
 import { useSessionStore } from '../store/sessions';
+import { isExternalDrop } from '../utils/drag';
+import { IconFolder, IconFolderOpen, IconChevron, IconFile } from './sidebar/icons';
+
+// ─── Panel resizer hook ───────────────────────────────────────────────────────
+function usePanelResizer(panelType, currentWidth, setPanelWidth, commitPanelWidth) {
+  const [isResizing, setIsResizing] = useState(false);
+
+  const onMouseDown = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+
+    const startX = e.clientX;
+    const startWidth = currentWidth;
+
+    const onMouseMove = (moveEvent) => {
+      const deltaX = startX - moveEvent.clientX;
+      setPanelWidth(panelType, startWidth + deltaX);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setIsResizing(false);
+      commitPanelWidth();
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [panelType, currentWidth, setPanelWidth, commitPanelWidth]);
+
+  return { isResizing, onMouseDown };
+}
 
 // ─── File / folder icons ─────────────────────────────────────────────────────
-
-const FolderIcon = ({ open }) => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    {open ? (
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z M2 13l3 6h17l-3-6z" />
-    ) : (
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    )}
-  </svg>
-);
-
-const FileIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
-  </svg>
-);
-
-const ChevronIcon = ({ collapsed }) => (
-  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.18s' }}>
-    <polyline points="6 9 12 15 18 9" />
-  </svg>
-);
+// (imported from sidebar/icons.js — shared with Sidebar)
 
 // Git status code → letter + color (mirrors GitPanel)
 const GIT_STATUS_VISUAL = {
@@ -77,7 +92,7 @@ function TreeNode({ item, depth, onFileSelect, gitStatusMap, rootPath, onContext
   const handleDragStart = (e) => {
     // Both formats so the terminal drop handler can pick whichever is easier
     e.dataTransfer.setData('text/plain', item.path);
-    e.dataTransfer.setData('application/x-zhishu-file', item.path);
+    e.dataTransfer.setData('application/x-prism-file', item.path);
     e.dataTransfer.effectAllowed = 'copy';
   };
 
@@ -134,7 +149,7 @@ function TreeNode({ item, depth, onFileSelect, gitStatusMap, rootPath, onContext
         className="tree-row"
       >
         {isDir ? (
-          <span style={nodeStyles.chevron}><ChevronIcon collapsed={collapsed} /></span>
+          <span style={nodeStyles.chevron}><IconChevron collapsed={collapsed} /></span>
         ) : (
           <span style={nodeStyles.chevronEmpty} />
         )}
@@ -142,7 +157,7 @@ function TreeNode({ item, depth, onFileSelect, gitStatusMap, rootPath, onContext
           ...nodeStyles.icon,
           color: isDir ? (isHidden ? '#7a5a10' : '#f59e0b') : '#5a5a5a',
         }}>
-          {isDir ? <FolderIcon open={!collapsed} /> : <FileIcon />}
+          {isDir ? (collapsed ? <IconFolder /> : <IconFolderOpen />) : <IconFile />}
         </span>
         <span style={{
           ...nodeStyles.name,
@@ -244,108 +259,29 @@ const nodeStyles = {
   },
 };
 
-// ─── File preview pane ──────────────────────────────────────────────────────
-
-function FilePreview({ file, onClose }) {
-  const [preview, setPreview] = useState({ loading: true });
-
-  useEffect(() => {
-    if (!file) return;
-    setPreview({ loading: true });
-    window.electronAPI.readFilePreview(file.path).then((res) => {
-      setPreview({ loading: false, ...res });
-    });
-  }, [file]);
-
-  if (!file) return null;
-
-  return (
-    <div style={previewStyles.wrapper}>
-      <div style={previewStyles.header}>
-        <span style={previewStyles.fileName}>{file.name}</span>
-        <button style={previewStyles.closeBtn} onClick={onClose}>×</button>
-      </div>
-      <div style={previewStyles.body}>
-        {preview.loading && <div style={previewStyles.placeholder}>加载中...</div>}
-        {preview.error && <div style={previewStyles.error}>{preview.error}</div>}
-        {preview.content && <pre style={previewStyles.content}>{preview.content}</pre>}
-      </div>
-    </div>
-  );
-}
-
-const previewStyles = {
-  wrapper: {
-    borderTop: '1px solid #1a1a1a',
-    background: '#0a0a0a',
-    flexShrink: 0,
-    maxHeight: '40%',
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '8px 12px',
-    borderBottom: '1px solid #161616',
-  },
-  fileName: {
-    fontSize: 11,
-    color: '#888',
-    fontFamily: 'var(--font-mono)',
-    fontWeight: 500,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  closeBtn: {
-    background: 'transparent',
-    border: 'none',
-    color: '#444',
-    fontSize: 16,
-    cursor: 'pointer',
-    width: 18,
-    height: 18,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 0,
-    lineHeight: 1,
-  },
-  body: {
-    flex: 1,
-    overflow: 'auto',
-    padding: 10,
-  },
-  placeholder: {
-    fontSize: 11,
-    color: '#3a3a3a',
-    fontFamily: 'var(--font-mono)',
-  },
-  error: {
-    fontSize: 11,
-    color: '#f87171',
-    fontFamily: 'var(--font-mono)',
-  },
-  content: {
-    fontSize: 10.5,
-    color: '#a0a0a0',
-    fontFamily: 'var(--font-mono)',
-    lineHeight: 1.55,
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-all',
-    margin: 0,
-  },
-};
-
 // ─── Main panel — slides in from the right side ──────────────────────────────
 
-export default function FileTreePanel({ open, cwd, onClose }) {
+export default function FileTreePanel() {
+  const open = useSessionStore((s) => s.fileTreeOpen);
+  const onClose = useSessionStore((s) => s.closeFileTree);
+  const openFilePreview = useSessionStore((s) => s.openFilePreview);
+  const getActiveProject = useSessionStore((s) => s.getActiveProject);
+  const fileTreeWidth = useSessionStore((s) => s.fileTreeWidth);
+  const setPanelWidth = useSessionStore((s) => s.setPanelWidth);
+  const commitPanelWidth = useSessionStore((s) => s.commitPanelWidth);
+  const addProject = useSessionStore((s) => s.addProject);
+  const addToast = useSessionStore((s) => s.addToast);
+
+  const { isResizing, onMouseDown: onResizerMouseDown } = usePanelResizer(
+    'file', fileTreeWidth, setPanelWidth, commitPanelWidth
+  );
+
+  const activeProject = getActiveProject();
+  const cwd = activeProject?.path || null;
+
   const [rootItems, setRootItems] = useState([]);
   const [rootHasMore, setRootHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [selectedFile, setSelectedFile] = useState(null);
   const [gitStatusMap, setGitStatusMap] = useState({});
   // Right-click menu state
   const [ctxMenu, setCtxMenu] = useState(null);
@@ -353,6 +289,8 @@ export default function FileTreePanel({ open, cwd, onClose }) {
   const [filter, setFilter] = useState('');
   // Custom prompt (replaces window.prompt)
   const showPrompt = useSessionStore((s) => s.showPrompt);
+  // External drag-over highlight
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // Fetch dir + git status in parallel
   const loadAll = useCallback(async () => {
@@ -378,11 +316,109 @@ export default function FileTreePanel({ open, cwd, onClose }) {
 
   useEffect(() => {
     if (!open || !cwd) return;
-    setSelectedFile(null);
     loadAll();
   }, [open, cwd, loadAll]);
 
   const refresh = loadAll;
+
+  // ── External drag-drop: Finder → FileTreePanel ──────────────────────
+  //
+  // dragenter / dragover: show highlight and set dropEffect
+  // dragleave: clear highlight (guard against child elements firing it)
+  // drop: classify files vs folders, then either import or add as project
+  const dragCounterRef = React.useRef(0);
+
+  const handleTreeDragEnter = useCallback((e) => {
+    if (!isExternalDrop(e)) return;
+    dragCounterRef.current += 1;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setIsDragOver(true);
+  }, []);
+
+  const handleTreeDragOver = useCallback((e) => {
+    if (!isExternalDrop(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const handleTreeDragLeave = useCallback((e) => {
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragOver(false);
+    }
+  }, []);
+
+  const handleTreeDrop = useCallback(async (e) => {
+    // Mark as handled so the global drop guard in index.js skips preventDefault
+    e._handled = true;
+    e.preventDefault();
+    e.stopPropagation();
+
+    setIsDragOver(false);
+    dragCounterRef.current = 0;
+
+    if (!isExternalDrop(e)) return;
+
+    const filePaths = [];
+    const folderPaths = [];
+
+    for (const item of Array.from(e.dataTransfer.items)) {
+      const entry = item.webkitGetAsEntry?.();
+      const file = item.getAsFile?.();
+      if (!file?.path) continue;
+      if (entry?.isDirectory) {
+        folderPaths.push(file.path);
+      } else {
+        filePaths.push(file.path);
+      }
+    }
+
+    // Folders → add each as a new project
+    for (const folderPath of folderPaths) {
+      const name = folderPath.split('/').filter(Boolean).pop() || folderPath;
+      addProject(name, folderPath);
+      addToast({ message: `已添加项目: ${name}`, type: 'success' });
+    }
+
+    // Files → copy into current project cwd
+    if (filePaths.length > 0 && cwd) {
+      try {
+        const result = await window.electronAPI.importExternal(filePaths, cwd);
+        if (!result?.ok && !result?.results) {
+          addToast({ message: '导入失败', type: 'error' });
+          return;
+        }
+        const results = result.results || [];
+        const okCount = results.filter((r) => r.status === 'ok').length;
+        const renamedCount = results.filter((r) => r.status === 'renamed').length;
+        const errorCount = results.filter((r) => r.status === 'error').length;
+
+        let msg = '';
+        if (okCount > 0 && renamedCount === 0 && errorCount === 0) {
+          msg = `成功导入 ${okCount} 个文件`;
+        } else {
+          const parts = [];
+          if (okCount > 0) parts.push(`成功 ${okCount}`);
+          if (renamedCount > 0) parts.push(`自动重命名 ${renamedCount} 个（同名冲突）`);
+          if (errorCount > 0) parts.push(`失败 ${errorCount}`);
+          msg = `导入完成：${parts.join('，')}`;
+        }
+
+        const toastType = errorCount > 0 && okCount === 0 && renamedCount === 0 ? 'error' : 'success';
+        addToast({ message: msg, type: toastType });
+
+        // Refresh tree to show newly imported files
+        await refresh();
+      } catch (err) {
+        console.error('importExternal error:', err);
+        addToast({ message: `导入出错: ${err.message || err}`, type: 'error' });
+      }
+    } else if (filePaths.length > 0 && !cwd) {
+      addToast({ message: '请先打开一个项目再拖入文件', type: 'error' });
+    }
+  }, [cwd, addProject, addToast, refresh]);
 
   // ── File operation handlers (called from the context menu) ──────────
   const buildContextMenuItems = ({ item, onChanged }) => {
@@ -415,6 +451,14 @@ export default function FileTreePanel({ open, cwd, onClose }) {
       items.push({ separator: true });
     }
 
+    // Only show "在预览中打开" for files (not directories)
+    if (!isDir) {
+      items.push({
+        label: '在预览中打开',
+        icon: '◫',
+        onClick: () => openFilePreview(item.path, item.name),
+      });
+    }
     items.push({
       label: '打开',
       icon: '↗',
@@ -491,10 +535,24 @@ export default function FileTreePanel({ open, cwd, onClose }) {
   const homeDir = window.electronAPI?.homeDir || '';
   const displayCwd = cwd?.startsWith(homeDir) ? cwd.replace(homeDir, '~') : cwd;
 
+  // Early-return AFTER all hooks to comply with Rules of Hooks
+  if (!open) return null;
+
   return (
-    <div style={{
-      ...styles.panel,
-    }}>
+    <div
+      style={{
+        ...styles.panel,
+        width: fileTreeWidth,
+        transition: isResizing ? 'none' : 'width 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
+      }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {/* Left-edge resizer handle */}
+      <div
+        className="panel-resizer"
+        style={styles.resizer}
+        onMouseDown={onResizerMouseDown}
+      />
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
@@ -545,8 +603,24 @@ export default function FileTreePanel({ open, cwd, onClose }) {
         )}
       </div>
 
-      {/* Tree */}
-      <div style={styles.tree}>
+      {/* Tree — also serves as the external file drop zone */}
+      <div
+        style={{
+          ...styles.tree,
+          ...(isDragOver ? styles.treeDragOver : {}),
+        }}
+        onDragEnter={handleTreeDragEnter}
+        onDragOver={handleTreeDragOver}
+        onDragLeave={handleTreeDragLeave}
+        onDrop={handleTreeDrop}
+      >
+        {isDragOver && (
+          <div style={styles.dropOverlay}>
+            <span style={styles.dropOverlayText}>
+              {cwd ? '拖入以导入文件 / 添加文件夹为项目' : '拖入文件夹以添加新项目'}
+            </span>
+          </div>
+        )}
         {loading && <div style={styles.placeholder}>加载中...</div>}
         {!loading && filteredItems.length === 0 && (
           <div style={styles.placeholder}>{filter ? '无匹配' : '(空目录)'}</div>
@@ -556,7 +630,7 @@ export default function FileTreePanel({ open, cwd, onClose }) {
             key={item.path}
             item={item}
             depth={0}
-            onFileSelect={setSelectedFile}
+            onFileSelect={(file) => openFilePreview(file.path, file.name)}
             gitStatusMap={gitStatusMap}
             rootPath={cwd}
             onContextMenu={onContextMenu}
@@ -569,11 +643,6 @@ export default function FileTreePanel({ open, cwd, onClose }) {
           </div>
         )}
       </div>
-
-      {/* File preview */}
-      {selectedFile && (
-        <FilePreview file={selectedFile} onClose={() => setSelectedFile(null)} />
-      )}
 
       {/* Context menu overlay */}
       {ctxMenu && (
@@ -591,12 +660,22 @@ export default function FileTreePanel({ open, cwd, onClose }) {
 const styles = {
   panel: {
     position: 'relative',
-    width: '100%',
+    flexShrink: 0,
     background: '#0b0b0b',
+    borderLeft: '1px solid #1a1a1a',
     display: 'flex',
     flexDirection: 'column',
-    flex: 1,
     overflow: 'hidden',
+  },
+  resizer: {
+    position: 'absolute',
+    top: 0,
+    left: -3,
+    width: 6,
+    height: '100%',
+    cursor: 'col-resize',
+    background: 'transparent',
+    zIndex: 100,
   },
   header: {
     display: 'flex',
@@ -705,5 +784,31 @@ const styles = {
     padding: '20px 14px',
     fontFamily: 'var(--font-mono)',
     textAlign: 'center',
+  },
+  // External drag-over highlight on the tree area
+  treeDragOver: {
+    boxShadow: 'inset 0 0 0 2px rgba(245, 158, 11, 0.55)',
+    background: 'rgba(245, 158, 11, 0.03)',
+    position: 'relative',
+  },
+  dropOverlay: {
+    position: 'sticky',
+    top: 0,
+    zIndex: 10,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '10px 14px',
+    background: 'rgba(245, 158, 11, 0.08)',
+    borderBottom: '1px solid rgba(245, 158, 11, 0.2)',
+    pointerEvents: 'none',
+  },
+  dropOverlayText: {
+    fontSize: 11,
+    color: '#f59e0b',
+    fontFamily: 'var(--font-ui)',
+    fontWeight: 500,
+    textAlign: 'center',
+    lineHeight: 1.4,
   },
 };

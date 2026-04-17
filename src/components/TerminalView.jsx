@@ -9,7 +9,7 @@ import { SearchAddon } from '@xterm/addon-search';
 // decoder has a dispose race condition that throws "_isDisposed of undefined"
 // when React 18 strict mode double-mounts the component. Re-enable when fixed upstream.
 import '@xterm/xterm/css/xterm.css';
-import { ToolIcon, BellIcon, BellMutedIcon, PinIcon, GearIcon, TreeIcon, GitBranchIcon, TemplateIcon } from './ToolIcons';
+import { ToolIcon, BellIcon, BellMutedIcon, PinIcon, GearIcon, TreeIcon, GitBranchIcon, TemplateIcon, ChecklistIcon } from './ToolIcons';
 import { useSessionStore } from '../store/sessions';
 import {
   TOOL_VISUALS,
@@ -18,8 +18,7 @@ import {
   TOOL_ORDER,
   PROVIDER_ORDER,
 } from '../constants/toolVisuals';
-import FileTreePanel from './FileTreePanel';
-import GitPanel from './GitPanel';
+import { formatDuration } from '../utils/format';
 import PromptTemplate from './PromptTemplate';
 
 // ─── Tool definitions ────────────────────────────────────────────────────────
@@ -81,19 +80,6 @@ function buildLaunchCommand({ kind, tool, provider, yoloMode, continueMode, tool
     return `${envStr} ${baseTool.command}${suffix}`;
   }
   return null;
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function formatDuration(ms) {
-  if (!ms || ms < 0) return '0s';
-  const totalSec = Math.floor(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
-  if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
-  return `${s}s`;
 }
 
 // ─── ToolButton — unified launch button for tools and providers ────────────
@@ -340,7 +326,6 @@ export default function TerminalView({
   const [hoveredTool, setHoveredTool] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isResizing, setIsResizing] = useState(false);
   const [promptTemplateOpen, setPromptTemplateOpen] = useState(false);
   const promptTemplateBtnRef = useRef(null);
 
@@ -404,14 +389,13 @@ export default function TerminalView({
   const getEffectiveProvider = useSessionStore((s) => s.getEffectiveProvider);
   const fileTreeOpen = useSessionStore((s) => s.fileTreeOpen);
   const toggleFileTree = useSessionStore((s) => s.toggleFileTree);
-  const closeFileTree = useSessionStore((s) => s.closeFileTree);
   const gitPanelOpen = useSessionStore((s) => s.gitPanelOpen);
   const toggleGitPanel = useSessionStore((s) => s.toggleGitPanel);
-  const closeGitPanel = useSessionStore((s) => s.closeGitPanel);
-  const gitPanelWidth = useSessionStore((s) => s.gitPanelWidth);
-  const fileTreeWidth = useSessionStore((s) => s.fileTreeWidth);
-  const setPanelWidth = useSessionStore((s) => s.setPanelWidth);
-  const commitPanelWidth = useSessionStore((s) => s.commitPanelWidth);
+  const todoPanelOpen = useSessionStore((s) => s.todoPanelOpen);
+  const toggleTodoPanel = useSessionStore((s) => s.toggleTodoPanel);
+  const todoActiveCount = useSessionStore((s) => s.todos.filter((t) => !t.done).length);
+  const broadcastMode = useSessionStore((s) => s.broadcastMode);
+  const toggleBroadcastMode = useSessionStore((s) => s.toggleBroadcastMode);
   const autoRestoreSessions = useSessionStore((s) => s.autoRestoreSessions);
   const now = useSessionStore((s) => s.now);
 
@@ -752,7 +736,7 @@ export default function TerminalView({
     const pathsToInsert = [];
     const convertedFiles = [];  // names of files we auto-converted
 
-    const internalPath = e.dataTransfer.getData('application/x-zhishu-file');
+    const internalPath = e.dataTransfer.getData('application/x-prism-file');
     if (internalPath) {
       pathsToInsert.push(internalPath);
     } else if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
@@ -804,46 +788,6 @@ export default function TerminalView({
     e.dataTransfer.dropEffect = 'copy';
   };
 
-  // ── Panel resizer drag handler ───────────────────────────────────────────
-  // Dragging the resizer on the panel's left edge adjusts the panel width.
-  // Direction is inverted compared to the sidebar resizer: moving mouse left
-  // increases the panel width, moving right decreases it.
-  const onPanelResizerMouseDown = useCallback((panelType, e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsResizing(true);
-
-    const startX = e.clientX;
-    const panelWidth = panelType === 'git' ? gitPanelWidth : fileTreeWidth;
-
-    const onMouseMove = (moveEvent) => {
-      const deltaX = startX - moveEvent.clientX;
-      const newWidth = panelWidth + deltaX;
-      setPanelWidth(panelType, newWidth);
-    };
-
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      setIsResizing(false);
-      commitPanelWidth();
-    };
-
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, [gitPanelWidth, fileTreeWidth, setPanelWidth, commitPanelWidth]);
-
-  // Determine which panel is currently open (for computing panel column width)
-  // H4: In split mode, only the active pane is allowed to show panels.
-  // This prevents both panes from simultaneously rendering 300-500px panels
-  // that would overflow in the narrow split layout.
-  const canShowPanel = !splitMode || isActive;
-  const panelOpen = canShowPanel && (gitPanelOpen || fileTreeOpen);
-  const currentPanelWidth = gitPanelOpen ? gitPanelWidth : fileTreeWidth;
 
   return (
     <div
@@ -964,6 +908,60 @@ export default function TerminalView({
             title={alwaysOnTop ? '窗口已置顶（点击取消）' : '窗口置顶'}
           >
             <PinIcon size={14} />
+          </button>
+
+          {/* TODO panel toggle */}
+          <button
+            onClick={toggleTodoPanel}
+            style={{
+              ...styles.iconOnlyBtn,
+              color: todoPanelOpen ? '#f59e0b' : '#666',
+              position: 'relative',
+            }}
+            title={todoPanelOpen ? '关闭待办面板' : '打开待办面板 (Cmd+Shift+T)'}
+          >
+            <ChecklistIcon size={14} />
+            {/* Active count badge */}
+            {!todoPanelOpen && todoActiveCount > 0 && (
+              <span style={{
+                position: 'absolute',
+                top: -2,
+                right: -2,
+                minWidth: 13,
+                height: 13,
+                borderRadius: 7,
+                background: '#3b82f6',
+                color: '#fff',
+                fontSize: 8,
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 2px',
+                boxShadow: '0 0 0 2px #0c0c0c',
+                fontFamily: 'system-ui',
+              }}>
+                {todoActiveCount > 99 ? '99+' : todoActiveCount}
+              </span>
+            )}
+          </button>
+
+          {/* Broadcast mode toggle */}
+          <button
+            onClick={toggleBroadcastMode}
+            style={{
+              ...styles.iconOnlyBtn,
+              color: broadcastMode ? '#3b82f6' : '#666',
+              borderColor: broadcastMode ? '#1e3050' : '#1e1e1e',
+              background: broadcastMode ? '#0e1a2e' : '#121212',
+              fontSize: 11,
+              fontWeight: 700,
+              fontFamily: 'system-ui',
+              letterSpacing: '-0.02em',
+            }}
+            title={broadcastMode ? '广播模式已开启（点击关闭）' : '开启广播模式 — 向所有终端发送同一输入'}
+          >
+            ⊕
           </button>
 
           {/* Git panel drawer toggle */}
@@ -1139,26 +1137,6 @@ export default function TerminalView({
           }}
         />
 
-        {/* Panel column — inline panel area */}
-        {panelOpen && (
-          <div style={{
-            ...styles.panelColumn,
-            width: currentPanelWidth,
-            transition: isResizing ? 'none' : 'width 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
-          }}>
-            <div
-              className="panel-resizer"
-              style={styles.panelResizer}
-              onMouseDown={(e) => onPanelResizerMouseDown(gitPanelOpen ? 'git' : 'file', e)}
-            />
-            {gitPanelOpen && (
-              <GitPanel open={gitPanelOpen} cwd={cwd} sessionId={sessionId} onClose={closeGitPanel} />
-            )}
-            {fileTreeOpen && (
-              <FileTreePanel open={fileTreeOpen} cwd={cwd} onClose={closeFileTree} />
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

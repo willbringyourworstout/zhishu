@@ -1,6 +1,6 @@
 # electron/ - Main Process
 
-> [<< Back to root](../CLAUDE.md)
+> [← 返回根目录](../CLAUDE.md)
 
 Electron main process modules. All pty, filesystem, git, process monitoring, system notifications, and tray resident logic live here.
 
@@ -21,10 +21,16 @@ Electron main process modules. All pty, filesystem, git, process monitoring, sys
 | `config.js` | ~100 | Config persistence + Keychain migration |
 | `gitStatus.js` | ~88 | `git status --porcelain=v1 -b` output parser (pure functions, no I/O) |
 | `gitStatus.test.js` | ~54 | gitStatus unit tests |
+| `monitor.test.js` | - | monitor FSM unit tests (mocked pty state) |
+| `tools.test.js` | - | TOOL_CATALOG / PROVIDER_CATALOG validation tests |
+| `config.test.js` | - | config persistence + Keychain migration tests |
 | `keychain.js` | ~248 | macOS Keychain integration for secure API key storage |
 | `keychain.test.js` | - | keychain unit tests |
 | `pathValidator.js` | ~95 | File path validation for IPC security |
 | `pathValidator.test.js` | - | pathValidator unit tests |
+| `hookWatcher.js` | ~153 | Claude Code Stop hook: fs.watch sentinel → instant "response complete" |
+| `todoAI.js` | ~395 | AI TODO assistant: streaming chat via Anthropic-format API |
+| `fsImportExternal.test.js` | - | fs-handlers import external path tests |
 
 ## Module Dependency Graph
 
@@ -43,10 +49,15 @@ main.js
   +-- tray.js             (createTray, refreshTrayMenu, destroyTray)
   |     +-- pty.js        (reads sessionStatus)
   +-- tools.js            (initToolsIPC)
-        +-- pty.js        (interruptAndRunInShell)
+  |     +-- pty.js        (interruptAndRunInShell)
+  +-- hookWatcher.js      (initHookWatcher, ensureClaudeHook)
+  |     +-- pty.js        (reads sessionLaunchedTool for sessionId mapping)
+  +-- todoAI.js           (initTodoIPC)
+        +-- keychain.js   (getKey for API key retrieval)
+        +-- tools.js      (PROVIDER_CATALOG for provider metadata)
 ```
 
-**Shared state ownership**: `pty.js` owns all core Maps (ptyProcesses, ptyMeta, sessionStatus, sessionLaunchedTool, notifyTimers, sessionNames). Other modules import these references and read/mutate through them. Primitive state (notificationsEnabled) is exported via getter/setter functions to avoid stale value copies.
+**Shared state ownership**: `pty.js` owns all core Maps (`ptyProcesses`, `ptyMeta`, `sessionStatus`, `sessionLaunchedTool`, `notifyTimers`, `sessionNames`). Other modules import these references and read/mutate through them. Primitive state (`notificationsEnabled`) is exported via getter/setter functions to avoid stale value copies.
 
 ## Core Data Structures
 
@@ -61,7 +72,7 @@ All active node-pty processes. Key is UUID string.
 Four-state FSM output. `phase in { not_started, idle_no_instruction, running, awaiting_review }`
 
 ### sessionLaunchedTool: `Map<sessionId, { id, label }>`
-Declared intent: distinguishes GLM/MiniMax/Kimi (all spawn the same `claude` binary). monitorTick prefers this value.
+Declared intent: distinguishes GLM/MiniMax/Kimi (all spawn the same `claude` binary). `monitorTick` prefers this value.
 
 ### notifyTimers: `Map<sessionId, setTimeout handle>`
 Debounced notification timers. running -> awaiting_review starts one; fires only if still idle after 3.5s.
@@ -127,6 +138,16 @@ Debounced notification timers. running -> awaiting_review starts one; fires only
 | `window:toggleAlwaysOnTop` | invoke | Toggle always-on-top |
 | `dialog:selectDir` | invoke | Directory selection dialog |
 
+### Todo AI (registered in `todoAI.js`)
+| Channel | Direction | Description |
+|---------|-----------|-------------|
+| `todo:chat:start` | invoke | Start streaming AI chat (Anthropic-format) |
+| `todo:chat:abort` | send | Abort in-flight request |
+| `todo:providers:available` | invoke | List providers with valid API keys |
+| `todo:stream:chunk` | send (->renderer) | Text delta during generation |
+| `todo:stream:done` | send (->renderer) | Stream complete (stopReason + toolCalls) |
+| `todo:stream:error` | send (->renderer) | Error during generation |
+
 ## Key Constants
 
 | Constant | Value | Description |
@@ -138,11 +159,11 @@ Debounced notification timers. running -> awaiting_review starts one; fires only
 | Scan max depth | 4 | Git repo recursive scan depth |
 | `IGNORED_DIRS` | node_modules, .git, dist, build... | File tree/scan ignored directories |
 
-## Dependencies
+## Window Bounds Persistence (main.js)
 
-- `electron` (^31.0.0) -- BrowserWindow, IPC, Tray, Notification
-- `node-pty` (^1.1.0) -- Native PTY binding (lazy-loaded after app ready)
-- Node.js built-in: `child_process` (execFile/execFileSync), `fs`, `path`, `os`
+`main.js` saves/restores window position and size via `saveWindowBounds()` / `createWindow()`:
+- Bounds are validated against `screen.getAllDisplays()` to prevent off-screen windows after external monitor disconnect
+- Default size: 1400×900; minimum: 900×600
 
 ## Adding a New IPC Handler Checklist
 1. Register `ipcMain.handle` or `ipcMain.on` in the appropriate module's `initXxxIPC()` function (or `initSystemIPC()` in main.js for system/window/config handlers)
@@ -152,4 +173,4 @@ Debounced notification timers. running -> awaiting_review starts one; fires only
 
 ---
 
-*Updated: 2026-04-13 -- main.js modular refactoring*
+*Updated: 2026-04-17 -- v1.2.x hookWatcher + todoAI + new IPC channels*

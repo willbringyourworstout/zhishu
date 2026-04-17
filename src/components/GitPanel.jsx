@@ -1,6 +1,41 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSessionStore } from '../store/sessions';
 
+// ─── Panel resizer hook ───────────────────────────────────────────────────────
+function usePanelResizer(panelType, currentWidth, setPanelWidth, commitPanelWidth) {
+  const [isResizing, setIsResizing] = useState(false);
+
+  const onMouseDown = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+
+    const startX = e.clientX;
+    const startWidth = currentWidth;
+
+    const onMouseMove = (moveEvent) => {
+      const deltaX = startX - moveEvent.clientX;
+      setPanelWidth(panelType, startWidth + deltaX);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setIsResizing(false);
+      commitPanelWidth();
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [panelType, currentWidth, setPanelWidth, commitPanelWidth]);
+
+  return { isResizing, onMouseDown };
+}
+
 // ─── Status code → display config ────────────────────────────────────────────
 
 const STATUS_META = {
@@ -23,8 +58,24 @@ function getParentDir(dirPath) {
 
 // ─── GitPanel — slides in from the right side, narrower than file tree ──────
 
-export default function GitPanel({ open, cwd, sessionId, onClose }) {
+export default function GitPanel() {
   const showPrompt = useSessionStore((s) => s.showPrompt);
+  const open = useSessionStore((s) => s.gitPanelOpen);
+  const onClose = useSessionStore((s) => s.closeGitPanel);
+  const getActiveProject = useSessionStore((s) => s.getActiveProject);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const gitPanelWidth = useSessionStore((s) => s.gitPanelWidth);
+  const setPanelWidth = useSessionStore((s) => s.setPanelWidth);
+  const commitPanelWidth = useSessionStore((s) => s.commitPanelWidth);
+
+  const { isResizing, onMouseDown: onResizerMouseDown } = usePanelResizer(
+    'git', gitPanelWidth, setPanelWidth, commitPanelWidth
+  );
+
+  const activeProject = getActiveProject();
+  const cwd = activeProject?.path || null;
+  const sessionId = activeSessionId;
+
   // mode: 'current' = focus on the active session's repo (single repo view)
   //       'scan'    = recursively scan cwd for ALL git repos and manage them
   const [mode, setMode] = useState('current');
@@ -151,10 +202,21 @@ export default function GitPanel({ open, cwd, sessionId, onClose }) {
     runInSession(`git commit -m '${escaped}'`);
   };
 
+  // Early-return AFTER all hooks to comply with Rules of Hooks
+  if (!open) return null;
+
   return (
     <div style={{
       ...styles.panel,
+      width: gitPanelWidth,
+      transition: isResizing ? 'none' : 'width 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
     }}>
+      {/* Left-edge resizer handle */}
+      <div
+        className="panel-resizer"
+        style={styles.resizer}
+        onMouseDown={onResizerMouseDown}
+      />
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
@@ -607,12 +669,22 @@ const GitIcon = () => (
 const styles = {
   panel: {
     position: 'relative',
-    width: '100%',
+    flexShrink: 0,
     background: '#0b0b0b',
+    borderLeft: '1px solid #1a1a1a',
     display: 'flex',
     flexDirection: 'column',
-    flex: 1,
     overflow: 'hidden',
+  },
+  resizer: {
+    position: 'absolute',
+    top: 0,
+    left: -3,
+    width: 6,
+    height: '100%',
+    cursor: 'col-resize',
+    background: 'transparent',
+    zIndex: 100,
   },
 
   header: {

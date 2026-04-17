@@ -80,7 +80,7 @@ function getGroupOrder(groups) {
   return [...userGroups, { id: 'ungrouped', name: '未分组', system: true }];
 }
 
-module.exports = {
+export {
   getFirstSessionId,
   hasSessionId,
   resolveProjects,

@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { TOOL_COLORS } from '../constants/toolVisuals';
+import { formatDuration } from '../utils/format';
 
 const AUTO_DISMISS_MS = 6000;
 
@@ -106,19 +107,6 @@ function ToastItem({ toast, onDismiss, onNavigate }) {
       </div>
     </div>
   );
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function formatDuration(ms) {
-  if (!ms) return '0s';
-  const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const r = s % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${r}s`;
-  return `${r}s`;
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────

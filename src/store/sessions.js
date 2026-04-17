@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-const {
+import {
   hasSessionId,
   resolveProjects,
   resolveTheme,
@@ -10,7 +10,7 @@ const {
   getFallbackActiveSessionId,
   resolveGroups,
   ensureUngrouped,
-} = require('./sessionState');
+} from './sessionState';
 
 // ─── Default config ──────────────────────────────────────────────────────────
 
@@ -178,8 +178,14 @@ export const useSessionStore = create((set, get) => ({
 
   // File tree drawer (right side panel)
   fileTreeOpen: false,
-  // Git panel drawer (right side panel — mutex with file tree)
+  // Git panel drawer (right side panel)
   gitPanelOpen: false,
+  // File preview panel — independent open state
+  previewPanelOpen: false,
+  // File currently shown in the preview panel: { path, name } | null
+  filePreview: null,
+  // Preview panel width — persisted
+  previewPanelWidth: 360,
   // UI theme: 'dark' | 'light'
   theme: 'dark',
   // Sidebar width — user-resizable via the resizer handle on its right edge
@@ -192,6 +198,23 @@ export const useSessionStore = create((set, get) => ({
   // { sessionId, direction: 'horizontal'|'vertical', ratio: 0.5 }
   // NOT persisted — transient workspace arrangement
   splitPane: null,
+
+  // ── TODO panel ────────────────────────────────────────────────────────────
+  todoPanelOpen: false,
+  todoPanelWidth: 300,
+  // todos: [{ id, text, done, priority: 'none'|'low'|'medium'|'high', createdAt, doneAt, dueDate }]
+  todos: [],
+  // YYYY-MM-DD of the last day the daily-review reminder was shown, to avoid repeat toasts
+  todoLastReminderDate: null,
+  // Currently selected AI provider ID for the TODO chat panel
+  todoChatProvider: null,
+
+  // ── Command Palette ──────────────────────────────────────────────────────
+  commandPaletteOpen: false,
+
+  // ── Broadcast mode ────────────────────────────────────────────────────────
+  // When true, input sent from BroadcastBar is forwarded to ALL active sessions
+  broadcastMode: false,
 
   // Group system: project folders for organizing projects
   // groups: [{ id, name, color?, system?, collapsed? }]
@@ -220,6 +243,9 @@ export const useSessionStore = create((set, get) => ({
 
       // Resolve groups from config, ensuring "ungrouped" is always present
       const groups = resolveGroups(config.groups);
+      const todos = config.todos || [];
+      const todoLastReminderDate = config.todoLastReminderDate || null;
+      const todoChatProvider = config.todoChatProvider || null;
 
       set({
         projects,
@@ -234,9 +260,24 @@ export const useSessionStore = create((set, get) => ({
         sidebarWidth: config.sidebarWidth || 236,
         gitPanelWidth: config.gitPanelWidth || 320,
         fileTreeWidth: config.fileTreeWidth || 300,
+        previewPanelWidth: config.previewPanelWidth || 360,
+        todoPanelWidth: config.todoPanelWidth || 300,
         groups,
+        todos,
+        todoLastReminderDate,
+        todoChatProvider,
         isLoading: false,
       });
+
+      // Daily review: auto-open TODO panel once per day if there are pending items
+      const today = new Date().toISOString().slice(0, 10);
+      const pendingTodos = todos.filter((t) => !t.done);
+      if (pendingTodos.length > 0 && todoLastReminderDate !== today) {
+        setTimeout(() => {
+          set({ todoPanelOpen: true });
+          get().markTodoReminderShown();
+        }, 1800);
+      }
 
       // Sync initial prefs and session names to main process
       window.electronAPI.setNotificationsEnabled(config.notificationsEnabled !== false);
@@ -265,9 +306,14 @@ export const useSessionStore = create((set, get) => ({
       sidebarWidth,
       gitPanelWidth,
       fileTreeWidth,
+      previewPanelWidth,
+      todoPanelWidth,
       autoRestoreSessions,
       promptTemplates,
       groups,
+      todos,
+      todoLastReminderDate,
+      todoChatProvider,
     } = get();
     window.electronAPI.saveConfig({
       projects,
@@ -275,10 +321,14 @@ export const useSessionStore = create((set, get) => ({
       yoloMode,
       notificationsEnabled,
       providerConfigs,
-      theme, sidebarWidth, gitPanelWidth, fileTreeWidth, autoRestoreSessions,
+      theme, sidebarWidth, gitPanelWidth, fileTreeWidth, previewPanelWidth,
+      todoPanelWidth, autoRestoreSessions,
       // Only persist custom templates (builtins are reconstructed from code)
       promptTemplates: promptTemplates.filter((t) => !t.builtin),
       groups,
+      todos,
+      todoLastReminderDate,
+      todoChatProvider,
     });
   },
 
@@ -296,13 +346,21 @@ export const useSessionStore = create((set, get) => ({
   // Persist after the user finishes dragging (not on every mouse move)
   commitSidebarWidth: () => get().persist(),
 
-  // Panel (Git / FileTree) width resize — clamped to 250-500px
+  // Panel (Git / FileTree / Preview / Todo) width resize
   setPanelWidth: (panelType, width) => {
-    const minW = 250;
-    const maxW = 500;
-    const clamped = Math.max(minW, Math.min(maxW, width));
-    if (panelType === 'git') set({ gitPanelWidth: clamped });
-    else set({ fileTreeWidth: clamped });
+    if (panelType === 'git') {
+      const clamped = Math.max(250, Math.min(500, width));
+      set({ gitPanelWidth: clamped });
+    } else if (panelType === 'preview') {
+      const clamped = Math.max(280, Math.min(720, width));
+      set({ previewPanelWidth: clamped });
+    } else if (panelType === 'todo') {
+      const clamped = Math.max(260, Math.min(500, width));
+      set({ todoPanelWidth: clamped });
+    } else {
+      const clamped = Math.max(250, Math.min(500, width));
+      set({ fileTreeWidth: clamped });
+    }
   },
   commitPanelWidth: () => get().persist(),
 
@@ -356,19 +414,21 @@ export const useSessionStore = create((set, get) => ({
   closeSettings: () => set({ settingsOpen: false }),
 
   // ── File tree drawer ──────────────────────────────────────────────────
-  // File tree and git panel are MUTEX — opening one closes the other
-  toggleFileTree: () => set((s) => ({
-    fileTreeOpen: !s.fileTreeOpen,
-    gitPanelOpen: false,
-  })),
+  toggleFileTree: () => set((s) => ({ fileTreeOpen: !s.fileTreeOpen })),
   closeFileTree: () => set({ fileTreeOpen: false }),
 
   // ── Git panel drawer ──────────────────────────────────────────────────
-  toggleGitPanel: () => set((s) => ({
-    gitPanelOpen: !s.gitPanelOpen,
-    fileTreeOpen: false,
-  })),
+  toggleGitPanel: () => set((s) => ({ gitPanelOpen: !s.gitPanelOpen })),
   closeGitPanel: () => set({ gitPanelOpen: false }),
+
+  // ── File preview panel ────────────────────────────────────────────────
+  openFilePreview: (path, name) => set({ filePreview: { path, name }, previewPanelOpen: true }),
+  closeFilePreview: () => set({ previewPanelOpen: false, filePreview: null }),
+  togglePreviewPanel: () => set((s) => ({
+    previewPanelOpen: !s.previewPanelOpen,
+    // Intentionally do NOT clear filePreview on close — reopen should restore
+    // last-viewed file. Explicit clear only via closeFilePreview().
+  })),
 
   // ── Theme ─────────────────────────────────────────────────────────────
   setTheme: (theme) => {
@@ -790,4 +850,62 @@ export const useSessionStore = create((set, get) => ({
     }
     return null;
   },
+
+  // ── TODO panel ────────────────────────────────────────────────────────────
+
+  toggleTodoPanel: () => set((s) => ({ todoPanelOpen: !s.todoPanelOpen })),
+  closeTodoPanel: () => set({ todoPanelOpen: false }),
+
+  addTodo: (text, priority = 'none', dueDate = null) => {
+    const id = `todo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    set((s) => ({
+      todos: [...s.todos, { id, text, done: false, priority, createdAt: Date.now(), doneAt: null, dueDate }],
+    }));
+    get().persist();
+  },
+
+  updateTodo: (id, updates) => {
+    set((s) => ({
+      todos: s.todos.map((t) => (t.id === id ? { ...t, ...updates } : t)),
+    }));
+    get().persist();
+  },
+
+  deleteTodo: (id) => {
+    set((s) => ({ todos: s.todos.filter((t) => t.id !== id) }));
+    get().persist();
+  },
+
+  toggleTodoDone: (id) => {
+    set((s) => ({
+      todos: s.todos.map((t) =>
+        t.id === id ? { ...t, done: !t.done, doneAt: !t.done ? Date.now() : null } : t
+      ),
+    }));
+    get().persist();
+  },
+
+  clearDoneTodos: () => {
+    set((s) => ({ todos: s.todos.filter((t) => !t.done) }));
+    get().persist();
+  },
+
+  markTodoReminderShown: () => {
+    const today = new Date().toISOString().slice(0, 10);
+    set({ todoLastReminderDate: today });
+    get().persist();
+  },
+
+  setTodoChatProvider: (id) => {
+    set({ todoChatProvider: id });
+    get().persist();
+  },
+
+  // ── Command Palette ──────────────────────────────────────────────────────
+  toggleCommandPalette: () => set((s) => ({ commandPaletteOpen: !s.commandPaletteOpen })),
+  closeCommandPalette: () => set({ commandPaletteOpen: false }),
+
+  // ── Broadcast mode ────────────────────────────────────────────────────────
+  toggleBroadcastMode: () => set((s) => ({ broadcastMode: !s.broadcastMode })),
+  disableBroadcastMode: () => set({ broadcastMode: false }),
 }));

@@ -105,7 +105,7 @@ export const KimiIcon = ({ size = 14, color = 'currentColor' }) => (
   </svg>
 );
 
-// ─── App brand logo (Prism v4 — golden hammer) ────────────────────────────────
+// ─── App brand logo (ZhiShu — golden hammer) ────────────────────────────────
 //
 // Gilded amber background (diagonal gradient) + white hammer mark with
 // slight -12° tilt. Simplified at 48px viewBox: no grip ring / highlights
@@ -218,6 +218,19 @@ export const GearIcon = ({ size = 14, color = 'currentColor' }) => (
     <g fill="none" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15 a 1.65 1.65 0 0 0 .33 1.82 l .06 .06 a 2 2 0 1 1 -2.83 2.83 l -.06 -.06 a 1.65 1.65 0 0 0 -1.82 -.33 1.65 1.65 0 0 0 -1 1.51 V 21 a 2 2 0 0 1 -4 0 v -.09 A 1.65 1.65 0 0 0 9 19.4 a 1.65 1.65 0 0 0 -1.82 .33 l -.06 .06 a 2 2 0 1 1 -2.83 -2.83 l .06 -.06 a 1.65 1.65 0 0 0 .33 -1.82 1.65 1.65 0 0 0 -1.51 -1 H 3 a 2 2 0 0 1 0 -4 h .09 A 1.65 1.65 0 0 0 4.6 9 a 1.65 1.65 0 0 0 -.33 -1.82 l -.06 -.06 a 2 2 0 1 1 2.83 -2.83 l .06 .06 a 1.65 1.65 0 0 0 1.82 .33 H 9 a 1.65 1.65 0 0 0 1 -1.51 V 3 a 2 2 0 0 1 4 0 v .09 a 1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82 -.33 l .06 -.06 a 2 2 0 1 1 2.83 2.83 l -.06 .06 a 1.65 1.65 0 0 0 -.33 1.82 V 9 a 1.65 1.65 0 0 0 1.51 1 H 21 a 2 2 0 0 1 0 4 h -.09 a 1.65 1.65 0 0 0 -1.51 1 z" />
+    </g>
+  </svg>
+);
+
+// Checklist / TODO panel icon
+export const ChecklistIcon = ({ size = 14, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <g fill="none" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2.5" />
+      <polyline points="7.5,9 9.5,11.5 12.5,7.5" />
+      <line x1="15" y1="9" x2="18" y2="9" />
+      <polyline points="7.5,15 9.5,17.5 12.5,13.5" />
+      <line x1="15" y1="15" x2="18" y2="15" />
     </g>
   </svg>
 );

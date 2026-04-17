@@ -20,7 +20,9 @@ const {
   broadcastStatus,
   broadcastResponseComplete,
   isNotificationsEnabled,
+  cleanupSession,
 } = require('./pty');
+const { TOOL_CATALOG } = require('./tools');
 
 // Silence threshold (ms) after which we consider an AI tool "done responding".
 const IDLE_SILENCE_MS = 3000;
@@ -28,21 +30,49 @@ const IDLE_SILENCE_MS = 3000;
 // Debounce for "response complete" notifications.
 const NOTIFY_DEBOUNCE_MS = 3500;
 
-// Known AI CLI tools — regex matched against the full command line.
-const AI_TOOL_MATCHERS = [
-  { id: 'claude',   label: 'Claude',    regex: /(^|\/|\s)claude(\s|$)/ },
-  { id: 'codex',    label: 'Codex',     regex: /(^|\/|\s)codex(\s|$)/ },
-  { id: 'gemini',   label: 'Gemini',    regex: /(^|\/|\s)gemini(\s|$)/ },
-  { id: 'qwen',     label: 'Qwen',      regex: /(^|\/|\s)qwen(\s|$)/ },
-  { id: 'opencode', label: 'OpenCode',  regex: /(^|\/|\s)opencode(\s|$)/ },
-];
+// Known AI CLI tools — dynamically generated from TOOL_CATALOG so that
+// adding a new tool in tools.js automatically creates a matcher here.
+// NOTE: If you need a custom regex (e.g. to avoid false positives), add a
+// `matchRegex` field to the tool entry in TOOL_CATALOG and this builder
+// will pick it up.
+const AI_TOOL_MATCHERS = Object.values(TOOL_CATALOG).map((tool) => ({
+  id: tool.id,
+  label: tool.name,
+  regex: new RegExp(`(^|\\/|\\s)${tool.command}(\\s|$)`),
+}));
+
+// maxBuffer for ps output — increased from 8MB to 32MB to handle machines
+// with very large process tables (CI servers, Docker hosts).
+const PS_MAX_BUFFER = 32 * 1024 * 1024;
 
 function snapshotProcesses() {
   return new Promise((resolve) => {
     execFile('ps', ['-axo', 'pid=,ppid=,command='],
-      { maxBuffer: 8 * 1024 * 1024 },
+      { maxBuffer: PS_MAX_BUFFER },
       (err, stdout) => {
-        if (err) return resolve({ ok: false, byPpid: new Map(), byPid: new Map() });
+        // Node.js throws 'maxBuffer exceeded' when output exceeds the limit.
+        // Return an empty snapshot so monitorTick skips this tick gracefully.
+        if (err) {
+          if (err.message && err.message.includes('maxBuffer')) {
+            console.warn(
+              `[monitor] ps output exceeded ${PS_MAX_BUFFER / (1024 * 1024)}MB; ` +
+              'process snapshot truncated. Consider further increasing PS_MAX_BUFFER.'
+            );
+          } else {
+            console.warn('[monitor] ps command failed:', err.message);
+          }
+          return resolve({ ok: false, byPpid: new Map(), byPid: new Map() });
+        }
+
+        // Truncation detection: if output length is within 5% of maxBuffer,
+        // the snapshot may be incomplete. Log a warning but still parse what we got.
+        if (stdout.length > PS_MAX_BUFFER * 0.95) {
+          console.warn(
+            `[monitor] ps output (${Math.round(stdout.length / (1024 * 1024))}MB) ` +
+            `is near maxBuffer limit (${PS_MAX_BUFFER / (1024 * 1024)}MB); ` +
+            'some processes may be missing from snapshot.'
+          );
+        }
 
         const byPpid = new Map();
         const byPid = new Map();
@@ -211,27 +241,62 @@ async function monitorTick() {
       }
     }
     // CASE 2: AI tool fully exited
+    // Uses cleanupSession() which is the same function called by the pty
+    // onExit handler.  The call is idempotent — if onExit already cleaned
+    // up, this is a no-op because sessionStatus no longer has .tool set.
     else if (prev.tool) {
-      const duration = now - (prev.startedAt || now);
-      const next = {
-        tool: null,
-        phase: 'not_started',
-        startedAt: null,
-        runningStartedAt: null,
-        lastRanTool: prev.tool,
-        lastDuration: duration,
-      };
-      sessionStatus.set(sessionId, next);
-      broadcastStatus(sessionId, next);
+      cleanupSession(sessionId);
 
       if (meta) meta.hasUserInput = false;
-      sessionLaunchedTool.delete(sessionId);
-      const pending = notifyTimers.get(sessionId);
-      if (pending) { clearTimeout(pending); notifyTimers.delete(sessionId); }
     }
   }
 }
 
+/**
+ * Called by hookWatcher when a Claude Code Stop hook signal arrives.
+ * Fires an immediate "response complete" notification, bypassing the
+ * polling-based 3.5s debounce — much more accurate than silence detection.
+ *
+ * @param {string} sessionId  The session UUID extracted from the signal file name.
+ */
+function handleHookStop(sessionId) {
+  const now    = Date.now();
+  const status = sessionStatus.get(sessionId);
+
+  // Guard: only act if this session was actually running
+  if (!status && !sessionLaunchedTool.get(sessionId)) return;
+
+  // Resolve the tool identity (prefer live status, fall back to launched map)
+  const toolId    = status?.tool || status?.lastRanTool || sessionLaunchedTool.get(sessionId)?.id;
+  const toolLabel = status?.label || sessionLaunchedTool.get(sessionId)?.label || toolId;
+  if (!toolId) return;
+
+  // Cancel any pending polling-based debounce timer — hook wins
+  const pending = notifyTimers.get(sessionId);
+  if (pending) {
+    clearTimeout(pending);
+    notifyTimers.delete(sessionId);
+  }
+
+  // Calculate response duration
+  const runningStartedAt = status?.runningStartedAt;
+  const duration = runningStartedAt ? now - runningStartedAt : 0;
+
+  // Ignore sub-2s signals (accidental hook fires during very short interactions)
+  if (duration < 2000 && status?.phase !== 'awaiting_review') return;
+
+  const tool = { id: toolId, label: toolLabel };
+  broadcastResponseComplete(sessionId, tool, Math.max(duration, 0));
+
+  const sName = sessionNames.get(sessionId) || 'Session';
+  sendCompletionNotification(sName, tool, Math.max(duration, 0));
+
+  console.log(
+    `[hookWatcher] Stop hook → session ${sessionId.slice(0, 8)} | ${toolLabel} | ${formatDuration(duration)}`
+  );
+}
+
 module.exports = {
   monitorTick,
+  handleHookStop,
 };

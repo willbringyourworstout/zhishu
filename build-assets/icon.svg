@@ -1,91 +1,59 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <!-- Rounded-square background like a real macOS app icon -->
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1a1410" />
-      <stop offset="50%" stop-color="#0d0806" />
-      <stop offset="100%" stop-color="#050302" />
+    <!-- Gilded amber background (unchanged) -->
+    <linearGradient id="bg" x1="15%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%"   stop-color="#FDE68A"/>
+      <stop offset="22%"  stop-color="#FBBF24"/>
+      <stop offset="55%"  stop-color="#D97706"/>
+      <stop offset="85%"  stop-color="#78350F"/>
+      <stop offset="100%" stop-color="#431407"/>
     </linearGradient>
 
-    <!-- Warm gold → amber gradient for the logo strokes -->
-    <linearGradient id="shell" x1="20%" y1="0%" x2="80%" y2="100%">
-      <stop offset="0%"   stop-color="#fde68a" />
-      <stop offset="35%"  stop-color="#fbbf24" />
-      <stop offset="70%"  stop-color="#f59e0b" />
-      <stop offset="100%" stop-color="#b45309" />
+    <linearGradient id="topSheen" x1="50%" y1="0%" x2="50%" y2="40%">
+      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
 
-    <!-- Z stroke gradient -->
-    <linearGradient id="z" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%"   stop-color="#fef3c7" />
-      <stop offset="40%"  stop-color="#fbbf24" />
-      <stop offset="100%" stop-color="#d97706" />
-    </linearGradient>
-
-    <!-- Core radial -->
-    <radialGradient id="core" cx="42%" cy="38%" r="65%">
-      <stop offset="0%"   stop-color="#ffffff" />
-      <stop offset="35%"  stop-color="#fde68a" />
-      <stop offset="100%" stop-color="#b45309" />
+    <radialGradient id="innerGlow" cx="50%" cy="50%" r="52%">
+      <stop offset="0%"   stop-color="#FEF3C7" stop-opacity="0.42"/>
+      <stop offset="70%"  stop-color="#FEF3C7" stop-opacity="0"/>
     </radialGradient>
 
-    <!-- Atmospheric glow -->
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%"   stop-color="#fbbf24" stop-opacity="0.55" />
-      <stop offset="55%"  stop-color="#f59e0b" stop-opacity="0.15" />
-      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
-    </radialGradient>
-
-    <!-- Subtle shadow under the logo -->
-    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="20" />
-      <feOffset dx="0" dy="8" result="offsetblur" />
-      <feComponentTransfer>
-        <feFuncA type="linear" slope="0.4" />
-      </feComponentTransfer>
-      <feMerge>
-        <feMergeNode />
-        <feMergeNode in="SourceGraphic" />
-      </feMerge>
-    </filter>
+    <!-- Hammer face fill: subtle white-to-pale-cream for dimension -->
+    <linearGradient id="hammer" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%"   stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#FEF3C7"/>
+    </linearGradient>
   </defs>
 
-  <!-- Rounded-square backplate (macOS icon convention: ~22% radius of the tile) -->
-  <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228" fill="url(#bg)" />
+  <!-- Gilded amber background -->
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="228" fill="url(#topSheen)"/>
+  <circle cx="512" cy="512" r="440" fill="url(#innerGlow)"/>
 
-  <!-- Inner panel with subtle top highlight for depth -->
-  <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228"
-        fill="url(#glow)" />
+  <!--
+    ═══ HAMMER ═══
+    Slight counter-clockwise tilt (-12°) gives subtle dynamism
+    without sacrificing readability. Centered at (512, 540) so
+    visual weight balances within the tile.
+  -->
+  <g transform="translate(512, 540) rotate(-12)" fill="url(#hammer)">
+    <!-- Handle: long shaft tapering not shown (uniform rect w/ rounded ends) -->
+    <rect x="-34" y="-90" width="68" height="590" rx="32"/>
 
-  <!-- Transform into logo coordinate space (48×48 → centered at 512) -->
-  <g transform="translate(512, 512) scale(14) translate(-24, -24)" filter="url(#dropShadow)">
+    <!-- Head: wide perpendicular block at top of handle -->
+    <rect x="-215" y="-220" width="430" height="130" rx="32"/>
 
-    <!-- Outer rotated shield (45°) -->
-    <g transform="rotate(45 24 24)">
-      <rect x="6.5" y="6.5" width="35" height="35" rx="4.5"
-            fill="none" stroke="url(#shell)" stroke-width="1.6" stroke-linejoin="round" />
-      <rect x="9" y="9" width="30" height="30" rx="3"
-            fill="none" stroke="url(#shell)" stroke-width="0.8" stroke-linejoin="round" opacity="0.45" />
-    </g>
+    <!-- Head top-edge bright highlight -->
+    <rect x="-215" y="-220" width="430" height="10" rx="5"
+          fill="#FFFFFF" opacity="0.85"/>
 
-    <!-- Three orbital ellipses -->
-    <g fill="none" stroke="url(#shell)" stroke-width="0.9" opacity="0.7">
-      <ellipse cx="24" cy="24" rx="14" ry="6" transform="rotate(20 24 24)" />
-      <ellipse cx="24" cy="24" rx="14" ry="6" transform="rotate(80 24 24)" />
-      <ellipse cx="24" cy="24" rx="14" ry="6" transform="rotate(140 24 24)" />
-    </g>
+    <!-- Head bottom-edge soft shadow (depth) -->
+    <rect x="-215" y="-102" width="430" height="12" rx="6"
+          fill="#451407" opacity="0.14"/>
 
-    <!-- Stylized Z -->
-    <g fill="none" stroke="url(#z)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M 16 16 L 30 16 Q 32 16 30.5 17.8 L 17.5 30.2 Q 16 32 18 32 L 32 32" />
-    </g>
-
-    <!-- Central core -->
-    <circle cx="24" cy="24" r="3.2" fill="url(#core)" />
-    <circle cx="22.6" cy="22.6" r="1" fill="#ffffff" opacity="0.85" />
-
-    <!-- Tiny orbit nodes -->
-    <circle cx="38" cy="24" r="0.9" fill="url(#shell)" />
-    <circle cx="10" cy="24" r="0.9" fill="url(#shell)" />
+    <!-- Handle grip ring near bottom (craftsman detail) -->
+    <rect x="-44" y="380" width="88" height="16" rx="8"
+          fill="#451407" opacity="0.18"/>
   </g>
 </svg>

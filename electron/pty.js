@@ -146,6 +146,38 @@ function broadcastResponseComplete(sessionId, tool, duration) {
   }
 }
 
+// ─── Session cleanup (idempotent) ─────────────────────────────────────────
+// Centralizes the "AI tool fully exited" state transitions.  Called from both
+// the pty onExit handler (immediate) and monitorTick CASE 2 (periodic scan
+// fallback).  Idempotent: calling it twice is safe — the second call is a
+// no-op because sessionStatus already reflects the cleaned state.
+
+function cleanupSession(sessionId) {
+  // 1. Transition status: if a tool was running, record lastRanTool/duration
+  const prev = sessionStatus.get(sessionId);
+  if (prev?.tool) {
+    const next = {
+      tool: null,
+      phase: 'not_started',
+      startedAt: null,
+      runningStartedAt: null,
+      lastRanTool: prev.tool,
+      lastDuration: prev.startedAt ? Date.now() - prev.startedAt : prev.lastDuration,
+    };
+    sessionStatus.set(sessionId, next);
+    broadcastStatus(sessionId, next);
+  }
+
+  // 2. Clear all per-session bookkeeping
+  ptyProcesses.delete(sessionId);
+  ptyMeta.delete(sessionId);
+  sessionStatus.delete(sessionId);
+  sessionLaunchedTool.delete(sessionId);
+
+  const pending = notifyTimers.get(sessionId);
+  if (pending) { clearTimeout(pending); notifyTimers.delete(sessionId); }
+}
+
 // ─── Cleanup for before-quit ──────────────────────────────────────────────
 
 function cleanupAll() {
@@ -198,25 +230,7 @@ function initPtyIPC() {
     });
 
     ptyProcess.onExit(({ exitCode }) => {
-      const prev = sessionStatus.get(sessionId);
-      if (prev?.tool) {
-        const next = {
-          tool: null,
-          phase: 'not_started',
-          startedAt: null,
-          runningStartedAt: null,
-          lastRanTool: prev.tool,
-          lastDuration: prev.startedAt ? Date.now() - prev.startedAt : prev.lastDuration,
-        };
-        broadcastStatus(sessionId, next);
-      }
-
-      ptyProcesses.delete(sessionId);
-      ptyMeta.delete(sessionId);
-      sessionStatus.delete(sessionId);
-      sessionLaunchedTool.delete(sessionId);
-      const pending = notifyTimers.get(sessionId);
-      if (pending) { clearTimeout(pending); notifyTimers.delete(sessionId); }
+      cleanupSession(sessionId);
 
       const win = BrowserWindow.getAllWindows()[0];
       if (win) {
@@ -269,7 +283,18 @@ function initPtyIPC() {
     if (toolId) {
       sessionLaunchedTool.set(sessionId, { id: toolId, label: toolLabel || toolId });
     }
-    interruptAndRunInShell(sessionId, command, { resetUserInput: true }).catch(() => {});
+
+    // Inject session ID so the Claude Code Stop hook can identify which session
+    // triggered the event.  Only applies to tools that run the claude binary:
+    //   - native: 'claude'
+    //   - providers using claude binary: 'glm', 'minimax', 'kimi', 'qwencp'
+    // The session ID is a UUID v4 (alphanumeric + hyphens — safe in single-quoted shell strings).
+    const CLAUDE_BASED = new Set(['claude', 'glm', 'minimax', 'kimi', 'qwencp']);
+    const finalCommand = (toolId && CLAUDE_BASED.has(toolId))
+      ? `AI_TERMINAL_SESSION_ID='${sessionId}' ${command}`
+      : command;
+
+    interruptAndRunInShell(sessionId, finalCommand, { resetUserInput: true }).catch(() => {});
   });
 
   // Session metadata & notifications
@@ -309,6 +334,7 @@ module.exports = {
   // Functions
   loadPtyModule,
   killPtyTree,
+  cleanupSession,
   interruptAndRunInShell,
   broadcastStatus,
   broadcastResponseComplete,

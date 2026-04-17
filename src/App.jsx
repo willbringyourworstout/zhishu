@@ -2,14 +2,21 @@ import React, { useEffect, useRef, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import TerminalView from './components/TerminalView';
 import SplitContainer from './components/SplitContainer';
+import FileTreePanel from './components/FileTreePanel';
+import FilePreviewPanel from './components/FilePreviewPanel';
+import GitPanel from './components/GitPanel';
+import TodoPanel from './components/TodoPanel';
 import ToastStack from './components/ToastStack';
 import SettingsModal from './components/SettingsModal';
 import PromptDialog from './components/PromptDialog';
+import CommandPalette from './components/CommandPalette';
+import BroadcastBar from './components/BroadcastBar';
 import { useSessionStore } from './store/sessions';
 import { playNotificationSound } from './utils/sound';
 
 export default function App() {
   const mainRef = useRef(null);
+  const termAreaRef = useRef(null);
   const {
     init, isLoading, projects, activeSessionId,
     yoloMode, toggleYoloMode,
@@ -19,6 +26,11 @@ export default function App() {
     setActiveSession,
     addSessionToActiveProject, closeActiveSession, setSessionByIndex,
     splitPane, openSplit, closeSplit, swapSplitSessions,
+    fileTreeOpen, closeFileTree,
+    previewPanelOpen, closeFilePreview,
+    gitPanelOpen, closeGitPanel,
+    todoPanelOpen, closeTodoPanel, toggleTodoPanel,
+    commandPaletteOpen, toggleCommandPalette, closeCommandPalette,
   } = useSessionStore();
 
   // Single global 5s tick replacing N per-component 1s intervals.
@@ -63,6 +75,18 @@ export default function App() {
         swapSplitSessions();
         return;
       }
+      // Cmd+Shift+T → toggle TODO panel
+      if ((e.key === 't' || e.key === 'T') && e.shiftKey) {
+        e.preventDefault();
+        toggleTodoPanel();
+        return;
+      }
+      // Cmd+P → command palette
+      if ((e.key === 'p' || e.key === 'P') && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        toggleCommandPalette();
+        return;
+      }
       // Cmd+\ → toggle split (open with next session or close)
       if (e.key === '\\' && !e.shiftKey) {
         e.preventDefault();
@@ -79,7 +103,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handler, { capture: true });
     return () => window.removeEventListener('keydown', handler, { capture: true });
-  }, [addSessionToActiveProject, closeActiveSession, setSessionByIndex, splitPane, closeSplit, openSplit, swapSplitSessions, projects, activeSessionId]);
+  }, [addSessionToActiveProject, closeActiveSession, setSessionByIndex, splitPane, closeSplit, openSplit, swapSplitSessions, projects, activeSessionId, toggleTodoPanel, toggleCommandPalette]);
 
   // Subscribe to per-session status updates (busy/idle phase changes)
   // Uses diff algorithm: only subscribe new sessions, only unsubscribe removed ones.
@@ -182,26 +206,56 @@ export default function App() {
     return new Set([activeSessionId, splitPane.sessionId]);
   }, [splitPane, activeSessionId]);
 
-  // ── Auto-close split when main area becomes too narrow ──────────────────
-  // Each pane needs at least 350px. If the main area drops below 700px the
-  // split becomes unusable, so we close it automatically.
-  // Uses ResizeObserver on the <main> element so Sidebar drag-resize also
-  // triggers the check (window resize only fires on actual window changes).
+  // ── Panel width competition protection + split auto-close ────────────────
+  // Uses ResizeObserver on termArea so Sidebar drag-resize also triggers it.
+  //
+  // When termArea width < 350px, close panels in priority order (one per resize):
+  //   1. PreviewPanel (most recently added)
+  //   2. FileTreePanel
+  //   3. GitPanel
+  //   4. SplitPane (last resort)
+  //
+  // When termArea width < 700px and split is active, close the split.
   useEffect(() => {
-    if (!splitPane || !mainRef.current) return;
+    if (!termAreaRef.current) return;
+
+    let rafId = null;
+    let latestWidth = 0;
+
     const observer = new ResizeObserver((entries) => {
-      const width = entries[0].contentRect.width;
-      if (width < 700) {
-        closeSplit();
-      }
+      latestWidth = entries[0].contentRect.width;
+      if (rafId !== null) return; // already scheduled
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const width = latestWidth;
+
+        if (width < 350) {
+          if (previewPanelOpen) { closeFilePreview(); return; }
+          if (fileTreeOpen)     { closeFileTree();    return; }
+          if (gitPanelOpen)     { closeGitPanel();    return; }
+          if (todoPanelOpen)    { closeTodoPanel();   return; }
+          if (splitPane)        { closeSplit();        return; }
+        } else if (width < 700 && splitPane) {
+          closeSplit();
+        }
+      });
     });
-    observer.observe(mainRef.current);
-    return () => observer.disconnect();
-  }, [splitPane, closeSplit]);
+    observer.observe(termAreaRef.current);
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
+  }, [
+    splitPane, closeSplit,
+    previewPanelOpen, closeFilePreview,
+    fileTreeOpen, closeFileTree,
+    gitPanelOpen, closeGitPanel,
+    todoPanelOpen, closeTodoPanel,
+  ]);
 
   // ── Drop handler for sidebar session drag → open split ──────────────────
   const handleMainDrop = useCallback((e) => {
-    const draggedId = e.dataTransfer.getData('application/x-zhishu-session');
+    const draggedId = e.dataTransfer.getData('application/x-prism-session');
     if (draggedId && draggedId !== activeSessionId) {
       e.preventDefault();
       e.stopPropagation();
@@ -211,7 +265,7 @@ export default function App() {
   }, [activeSessionId, openSplit]);
 
   const handleMainDragOver = useCallback((e) => {
-    if (e.dataTransfer.types.includes('application/x-zhishu-session')) {
+    if (e.dataTransfer.types.includes('application/x-prism-session')) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
       e.currentTarget.classList.add('split-drop-zone-active');
@@ -239,76 +293,91 @@ export default function App() {
       <main
         ref={mainRef}
         style={styles.main}
-        onDrop={handleMainDrop}
-        onDragOver={handleMainDragOver}
-        onDragLeave={handleMainDragLeave}
       >
-        {activeSessionId ? (
-          <>
-            {/* SplitContainer: renders the two split sessions independently */}
-            {splitPane && splitSessionIds.size === 2 && (
-              <SplitContainer
-                primaryId={activeSessionId}
-                secondaryId={splitPane.sessionId}
-                direction={splitPane.direction}
-                ratio={splitPane.ratio}
-                renderTerminal={(sid) => renderTerminal(sid, { inSplit: true })}
-              />
-            )}
-            {/* Background termStack: non-split sessions only.
-                When split is active, the two split sessions are NOT rendered here
-                at all — they render exclusively inside SplitContainer. This prevents
-                double-mounting two TerminalView instances for the same session, which
-                would cause duplicate IPC subscriptions and competing resize calls.
-                Non-split sessions remain mounted (visibility toggled) for xterm.js
-                dimension stability. */}
-            <div style={{
-              ...styles.termStack,
-              ...(splitPane ? { position: 'absolute', pointerEvents: 'none' } : {}),
-            }}>
-              {projects.flatMap((p) =>
-                p.sessions.map((s) => {
-                  const isSplitParticipant = splitPane && splitSessionIds.has(s.id);
-                  const isVisible = !splitPane
-                    ? s.id === activeSessionId
-                    : !isSplitParticipant && s.id === activeSessionId;
-
-                  return (
-                    <div
-                      key={s.id}
-                      style={{
-                        ...styles.termLayer,
-                        visibility: isVisible ? 'visible' : 'hidden',
-                        zIndex: isVisible ? 1 : 0,
-                      }}
-                    >
-                      {isSplitParticipant ? null : (
-                        <TerminalView
-                          sessionId={s.id}
-                          cwd={p.path}
-                          yoloMode={yoloMode}
-                          onYoloToggle={toggleYoloMode}
-                          sessionCreatedAt={s.createdAt}
-                          sessionStatus={sessionStatus[s.id]}
-                          notificationsEnabled={notificationsEnabled}
-                          onNotificationsToggle={toggleNotifications}
-                          sessionLastTool={s.lastTool}
-                          isActive={s.id === activeSessionId}
-                        />
-                      )}
-                    </div>
-                  );
-                })
+        {/* Terminal area — takes remaining space, panels sit to its right */}
+        <div
+          ref={termAreaRef}
+          style={styles.termArea}
+          onDrop={handleMainDrop}
+          onDragOver={handleMainDragOver}
+          onDragLeave={handleMainDragLeave}
+        >
+          {activeSessionId ? (
+            <>
+              {/* SplitContainer: renders the two split sessions independently */}
+              {splitPane && splitSessionIds.size === 2 && (
+                <SplitContainer
+                  primaryId={activeSessionId}
+                  secondaryId={splitPane.sessionId}
+                  direction={splitPane.direction}
+                  ratio={splitPane.ratio}
+                  renderTerminal={(sid) => renderTerminal(sid, { inSplit: true })}
+                />
               )}
+              {/* Background termStack: non-split sessions only.
+                  When split is active, the two split sessions are NOT rendered here
+                  at all — they render exclusively inside SplitContainer. This prevents
+                  double-mounting two TerminalView instances for the same session, which
+                  would cause duplicate IPC subscriptions and competing resize calls.
+                  Non-split sessions remain mounted (visibility toggled) for xterm.js
+                  dimension stability. */}
+              <div style={{
+                ...styles.termStack,
+                ...(splitPane ? { position: 'absolute', pointerEvents: 'none' } : {}),
+              }}>
+                {projects.flatMap((p) =>
+                  p.sessions.map((s) => {
+                    const isSplitParticipant = splitPane && splitSessionIds.has(s.id);
+                    const isVisible = !splitPane
+                      ? s.id === activeSessionId
+                      : !isSplitParticipant && s.id === activeSessionId;
+
+                    return (
+                      <div
+                        key={s.id}
+                        style={{
+                          ...styles.termLayer,
+                          visibility: isVisible ? 'visible' : 'hidden',
+                          zIndex: isVisible ? 1 : 0,
+                        }}
+                      >
+                        {isSplitParticipant ? null : (
+                          <TerminalView
+                            sessionId={s.id}
+                            cwd={p.path}
+                            yoloMode={yoloMode}
+                            onYoloToggle={toggleYoloMode}
+                            sessionCreatedAt={s.createdAt}
+                            sessionStatus={sessionStatus[s.id]}
+                            notificationsEnabled={notificationsEnabled}
+                            onNotificationsToggle={toggleNotifications}
+                            sessionLastTool={s.lastTool}
+                            isActive={s.id === activeSessionId}
+                          />
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          ) : (
+            <div style={styles.empty}>
+              <div style={styles.emptyIcon}>▣</div>
+              <p style={styles.emptyTitle}>智枢 ZhiShu</p>
+              <p style={styles.emptyHint}>在左侧添加项目，创建会话，即可开始</p>
             </div>
-          </>
-        ) : (
-          <div style={styles.empty}>
-            <div style={styles.emptyIcon}>▣</div>
-            <p style={styles.emptyTitle}>AI Terminal Manager</p>
-            <p style={styles.emptyHint}>在左侧添加项目，创建会话，即可开始</p>
-          </div>
-        )}
+          )}
+
+          {/* Broadcast bar — only visible when broadcastMode is active */}
+          <BroadcastBar />
+        </div>
+
+        {/* Top-level panels — sit to the right of termArea, each independently toggled */}
+        <FileTreePanel />
+        <FilePreviewPanel />
+        <GitPanel />
+        <TodoPanel />
       </main>
 
       {/* Floating in-app notifications (response-complete toasts) */}
@@ -323,6 +392,9 @@ export default function App() {
 
       {/* Custom prompt dialog (replaces window.prompt which Electron blocks) */}
       <PromptDialog />
+
+      {/* Command palette — Portal-rendered, Cmd+P to open */}
+      <CommandPalette />
     </div>
   );
 }
@@ -337,10 +409,18 @@ const styles = {
   main: {
     flex: 1,
     display: 'flex',
-    flexDirection: 'column',
+    flexDirection: 'row',
     overflow: 'hidden',
     background: '#0d0d0d',
     position: 'relative',
+  },
+  termArea: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    position: 'relative',
+    overflow: 'hidden',
+    minWidth: 0,
   },
   termStack: {
     position: 'relative',

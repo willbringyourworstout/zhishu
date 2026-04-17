@@ -1,495 +1,49 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { useSessionStore, PROJECT_TEMPLATES } from '../store/sessions';
-import { TOOL_COLORS, TOOL_LABELS, PHASE_STANDBY, PHASE_REVIEW } from '../constants/toolVisuals';
-import { AppLogo, PencilIcon } from './ToolIcons';
+import React, { useState, useRef, useCallback, useMemo } from 'react';
+import { useSessionStore } from '../store/sessions';
+import { AppLogo } from './ToolIcons';
 import ContextMenu from './ContextMenu';
 import { getGroupOrder } from '../store/sessionState';
+import { isExternalDrop } from '../utils/drag';
 
-// ─── Icons (inline SVG — crisp at any scale, no external fonts) ───────────────
-
-const IconFolder = ({ size = 13 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-  </svg>
-);
-
-const IconTerminal = ({ size = 11 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="4 17 10 11 4 5" />
-    <line x1="12" y1="19" x2="20" y2="19" />
-  </svg>
-);
-
-const IconPlus = ({ size = 12 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-    <line x1="12" y1="5" x2="12" y2="19" />
-    <line x1="5" y1="12" x2="19" y2="12" />
-  </svg>
-);
-
-const IconTrash = ({ size = 11 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="3 6 5 6 21 6" />
-    <path d="M19 6l-1 14H6L5 6" />
-    <path d="M10 11v6M14 11v6" />
-    <path d="M9 6V4h6v2" />
-  </svg>
-);
-
-const IconEdit = ({ size = 11 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-  </svg>
-);
-
-const IconChevron = ({ collapsed, size = 9 }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="3"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.18s' }}
-  >
-    <polyline points="6 9 12 15 18 9" />
-  </svg>
-);
-
-const IconFolderOpen = ({ size = 13 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M5 19a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1" />
-    <path d="M20.5 12H3.5a1 1 0 0 0-1 1.1l1 7a1 1 0 0 0 1 .9h15a1 1 0 0 0 1-.9l1-7a1 1 0 0 0-1-1.1z" />
-  </svg>
-);
-
-const IconMoveToFolder = ({ size = 11 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    <polyline points="12 11 12 17" />
-    <polyline points="9 14 12 17 15 14" />
-  </svg>
-);
-
-// ─── Inline editable label (double-click to edit) ────────────────────────────
-
-function EditableLabel({ value, onCommit, style }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const inputRef = useRef(null);
-
-  useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
-  useEffect(() => { setDraft(value); }, [value]);
-
-  const commit = () => {
-    setEditing(false);
-    if (draft.trim() && draft !== value) onCommit(draft.trim());
-    else setDraft(value);
-  };
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') commit();
-          if (e.key === 'Escape') { setEditing(false); setDraft(value); }
-        }}
-        style={styles.inlineInput}
-        onClick={(e) => e.stopPropagation()}
-      />
-    );
-  }
-
-  return (
-    <span style={style} onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); }}>
-      {value}
-    </span>
-  );
-}
-
-// Tool brand colors, labels, and phase colors come from
-// src/constants/toolVisuals.js — single source of truth.
-
-// Semantic phase colors re-exported for local readability
-const COLOR_STANDBY = PHASE_STANDBY;
-const COLOR_REVIEW  = PHASE_REVIEW;
-
-// Format milliseconds → compact "1h 23m" / "5m 12s" / "45s"
-function fmtDuration(ms) {
-  if (!ms || ms < 0) return '';
-  const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const r = s % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${r}s`;
-  return `${r}s`;
-}
-
-/**
- * Four-state phase → visual indicator.
- *
- * not_started         → no indicator (offline)
- * idle_no_instruction → slate/grey, slow breathing (standby, waiting for user)
- * running             → brand-color, fast pulse (AI generating)
- * awaiting_review     → green, slow breathing (response done, review needed)
- */
-function getPhaseIndicator(status) {
-  if (!status?.tool || status.phase === 'not_started') return null;
-
-  if (status.phase === 'running') {
-    return {
-      color: TOOL_COLORS[status.tool] || '#888',
-      animation: 'pulse 1.2s ease-in-out infinite',
-      title: `${status.label || status.tool} 运行中`,
-    };
-  }
-  if (status.phase === 'awaiting_review') {
-    return {
-      color: COLOR_REVIEW,
-      animation: 'breathe 2.5s ease-in-out infinite',
-      title: `${status.label || status.tool} 运行后待审查`,
-    };
-  }
-  if (status.phase === 'idle_no_instruction') {
-    return {
-      color: COLOR_STANDBY,
-      animation: 'breathe 3s ease-in-out infinite',
-      title: `${status.label || status.tool} 未指令`,
-    };
-  }
-  return null;
-}
-
-// ─── Session row ──────────────────────────────────────────────────────────────
-
-const SessionRow = React.memo(function SessionRow({ session, projectId, isActive, onSelect, onRename, onRemove, status, now }) {
-  const [hovered, setHovered] = useState(false);
-  const [dragging, setDragging] = useState(false);
-
-  // ── Drag support: allow dragging sessions to terminal area for split ────
-  const handleDragStart = useCallback((e) => {
-    e.dataTransfer.setData('application/x-zhishu-session', session.id);
-    e.dataTransfer.effectAllowed = 'move';
-    setDragging(true);
-  }, [session.id]);
-
-  const handleDragEnd = useCallback(() => {
-    setDragging(false);
-  }, []);
-
-  // ── Inline rename state (lifted out of EditableLabel for direct control) ──
-  // Multiple triggers can flip into edit mode: double-click, pencil button,
-  // or future shortcuts. The shared state lives here so they all coexist cleanly.
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(session.name);
-  const inputRef = useRef(null);
-
-  // Keep draft in sync with the source of truth
-  useEffect(() => { setDraft(session.name); }, [session.name]);
-
-  // Auto-focus + select-all when editing starts
-  useEffect(() => {
-    if (editing) {
-      // Defer to next tick so the input has actually mounted
-      setTimeout(() => inputRef.current?.select(), 30);
-    }
-  }, [editing]);
-
-  const startEdit = (e) => {
-    e?.stopPropagation();
-    setEditing(true);
-  };
-
-  const commitEdit = () => {
-    setEditing(false);
-    const trimmed = draft.trim();
-    if (trimmed && trimmed !== session.name) onRename(trimmed);
-    else setDraft(session.name);
-  };
-
-  const cancelEdit = () => {
-    setEditing(false);
-    setDraft(session.name);
-  };
-
-  const indicator = getPhaseIndicator(status);
-
-  // Build the sub-line content (running tool + elapsed time, OR last-ran summary)
-  let subLine = null;
-  if (status?.tool) {
-    const toolLabel = TOOL_LABELS[status.tool] || status.tool;
-    const elapsed = status.startedAt ? fmtDuration(now - status.startedAt) : '';
-    const phaseTag = status.phase === 'awaiting_review' ? '待审' :
-                     status.phase === 'running' ? '运行中' :
-                     status.phase === 'idle_no_instruction' ? '未指令' : '';
-    subLine = (
-      <div style={styles.sessionSubLine}>
-        <span style={{ color: TOOL_COLORS[status.tool] || '#888' }}>{toolLabel}</span>
-        {phaseTag && <span style={styles.subLineDim}>· {phaseTag}</span>}
-        {elapsed && <span style={styles.subLineDim}>· {elapsed}</span>}
-      </div>
-    );
-  } else if (status?.lastRanTool) {
-    // No active tool but we know what ran last — show as muted history
-    const label = TOOL_LABELS[status.lastRanTool] || status.lastRanTool;
-    const dur = status.lastDuration ? fmtDuration(status.lastDuration) : '';
-    subLine = (
-      <div style={styles.sessionSubLine}>
-        <span style={styles.subLineMuted}>上次 · {label}{dur && ` · ${dur}`}</span>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      draggable
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-      style={{
-        ...styles.sessionRow,
-        ...(isActive ? styles.sessionRowActive : hovered ? styles.sessionRowHover : {}),
-        ...(dragging ? { opacity: 0.5 } : {}),
-        flexDirection: 'column',
-        alignItems: 'stretch',
-      }}
-      onClick={() => { if (!editing) onSelect(); }}
-      onDoubleClick={(e) => { e.stopPropagation(); startEdit(); }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <div style={styles.sessionMainRow}>
-        {/* Active indicator bar */}
-        <span style={{ ...styles.activeBar, opacity: isActive ? 1 : 0 }} />
-
-        <span style={{
-          ...styles.sessionIcon,
-          color: isActive ? '#f59e0b' : '#3a3a3a',
-        }}>
-          <IconTerminal />
-        </span>
-
-        {editing ? (
-          <input
-            ref={inputRef}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
-              if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
-            }}
-            onClick={(e) => e.stopPropagation()}
-            style={styles.renameInput}
-            autoFocus
-          />
-        ) : (
-          <span
-            style={{
-              ...styles.sessionName,
-              color: isActive ? '#e2e8f0' : '#888',
-              fontWeight: isActive ? 500 : 400,
-            }}
-            title="双击重命名"
-          >
-            {session.name}
-          </span>
-        )}
-
-        {/* Phase indicator — only when NOT hovered, so hover swaps it for actions */}
-        {indicator && !editing && !hovered && (
-          <span
-            title={indicator.title}
-            style={{
-              ...styles.runningPulse,
-              background: indicator.color,
-              boxShadow: `0 0 6px ${indicator.color}, 0 0 2px ${indicator.color}`,
-              animation: indicator.animation,
-            }}
-          />
-        )}
-
-        {/* Hover actions: rename + delete — ALWAYS visible on hover, even
-            when an AI tool is currently running (indicator hidden above) */}
-        {hovered && !editing && (
-          <div style={styles.sessionActions}>
-            <button
-              className="sidebar-action-btn"
-              style={{ ...styles.iconBtn, color: '#aaa' }}
-              onClick={startEdit}
-              title="重命名"
-            >
-              <PencilIcon />
-            </button>
-            <button
-              className="sidebar-action-btn"
-              style={{ ...styles.iconBtn, color: '#aaa' }}
-              onClick={(e) => { e.stopPropagation(); onRemove(); }}
-              title="删除会话"
-            >
-              <IconTrash />
-            </button>
-          </div>
-        )}
-      </div>
-
-      {subLine}
-    </div>
-  );
-});
-
-// ─── Project section ──────────────────────────────────────────────────────────
-
-function ProjectSection({ project, activeSessionId, sessionStatus, onContextMenu }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const {
-    addSession, removeSession, renameSession, removeProject, renameProject,
-    setActiveSession, updateProjectPath,
-    now,
-  } = useSessionStore();
-
-  const handlePickDir = async (e) => {
-    e.stopPropagation();
-    const dir = await window.electronAPI.selectDir();
-    if (dir) updateProjectPath(project.id, dir);
-  };
-
-  const handleAddSession = (e) => {
-    e.stopPropagation();
-    addSession(project.id);
-  };
-
-  const handleRemoveProject = (e) => {
-    e.stopPropagation();
-    if (window.confirm(`删除项目 "${project.name}" 及其所有会话？`)) {
-      removeProject(project.id);
-    }
-  };
-
-  const homeDir = window.electronAPI?.homeDir || '';
-  const displayPath = project.path?.startsWith(homeDir)
-    ? project.path.replace(homeDir, '~')
-    : project.path;
-
-  return (
-    <div style={styles.projectSection}>
-      {/* Project header */}
-      <div
-        style={{
-          ...styles.projectHeader,
-          background: hovered ? '#141414' : 'transparent',
-        }}
-        onClick={() => setCollapsed((c) => !c)}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        onContextMenu={(e) => onContextMenu?.(e, project)}
-      >
-        <span style={styles.chevron}>
-          <IconChevron collapsed={collapsed} />
-        </span>
-        <span style={styles.folderIcon}><IconFolder /></span>
-        <EditableLabel
-          value={project.name}
-          onCommit={(name) => renameProject(project.id, name)}
-          style={styles.projectName}
-        />
-        {hovered && (
-          <div style={styles.projectActions} onClick={(e) => e.stopPropagation()}>
-            <button
-              className="sidebar-action-btn"
-              style={{ ...styles.iconBtn, color: '#aaa' }}
-              onClick={handlePickDir}
-              title="更改目录"
-            >
-              <IconEdit />
-            </button>
-            <button
-              className="sidebar-action-btn"
-              style={{ ...styles.iconBtn, color: '#aaa' }}
-              onClick={handleAddSession}
-              title="新建会话"
-            >
-              <IconPlus />
-            </button>
-            <button
-              className="sidebar-action-btn"
-              style={{ ...styles.iconBtn, color: '#aaa' }}
-              onClick={handleRemoveProject}
-              title="删除项目"
-            >
-              <IconTrash />
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Path label */}
-      {!collapsed && displayPath && (
-        <div style={styles.projectPath} title={project.path}>
-          {displayPath}
-        </div>
-      )}
-
-      {/* Sessions */}
-      {!collapsed && project.sessions.map((session) => (
-        <SessionRow
-          key={session.id}
-          session={session}
-          projectId={project.id}
-          isActive={session.id === activeSessionId}
-          status={sessionStatus?.[session.id]}
-          onSelect={() => setActiveSession(session.id)}
-          onRename={(name) => renameSession(project.id, session.id, name)}
-          onRemove={() => removeSession(project.id, session.id)}
-          now={now}
-        />
-      ))}
-    </div>
-  );
-}
+// Sub-components (extracted to ./sidebar/)
+import ProjectSection from './sidebar/ProjectSection';
+import {
+  IconFolder,
+  IconFolderOpen,
+  IconChevron,
+  IconPlus,
+  IconEdit,
+  IconTrash,
+  IconMoveToFolder,
+} from './sidebar/icons';
+import styles from './sidebar/styles';
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 export default function Sidebar() {
   const {
     projects, activeSessionId, sessionStatus,
-    createProjectFromTemplate,
     sidebarWidth, setSidebarWidth, commitSidebarWidth,
     groups, createGroup, removeGroup, renameGroup,
     moveProjectToGroup, toggleGroupCollapsed,
+    addProject, addToast,
   } = useSessionStore();
-
-  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
-  const [contextMenu, setContextMenu] = useState(null); // { x, y, items }
-  const [groupRenameDraft, setGroupRenameDraft] = useState(null); // { groupId, value }
+  const [contextMenu, setContextMenu] = useState(null);
+  const [groupRenameDraft, setGroupRenameDraft] = useState(null);
+  const [isSidebarDragOver, setIsSidebarDragOver] = useState(false);
+  const sidebarDragCounterRef = useRef(0);
 
   // Build ordered group list with ungrouped always last
-  const orderedGroups = React.useMemo(() => getGroupOrder(groups), [groups]);
-
-  // Check if there are any user-created groups (beyond just "ungrouped")
+  const orderedGroups = useMemo(() => getGroupOrder(groups), [groups]);
   const hasUserGroups = groups.some((g) => !g.system);
 
-  // ── Sidebar resizer drag handling ────────────────────────────────────
-  // Mouse-down on the right-edge handle starts a global mousemove listener
-  // that updates the width until mouseup. We persist only on release to
-  // avoid spamming the disk.
+  // ── Sidebar resizer drag handling ──────────────────────────────────
   const onResizerMouseDown = (e) => {
     e.preventDefault();
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
-    const onMove = (ev) => {
-      // The sidebar starts at x=0, so the new width is just the cursor X
-      setSidebarWidth(ev.clientX);
-    };
+    const onMove = (ev) => setSidebarWidth(ev.clientX);
     const onUp = () => {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
@@ -501,33 +55,28 @@ export default function Sidebar() {
     window.addEventListener('mouseup', onUp);
   };
 
-  // Count sessions in each interesting phase for the stats strip
+  // Stats
   const allStatuses = Object.values(sessionStatus || {});
   const runningCount = allStatuses.filter((s) => s?.phase === 'running').length;
   const reviewCount  = allStatuses.filter((s) => s?.phase === 'awaiting_review').length;
+  const totalSessions = projects.reduce((n, p) => n + p.sessions.length, 0);
 
-  const handlePickTemplate = async (templateId) => {
-    setTemplateMenuOpen(false);
+  const handleAddProject = async () => {
     const dir = await window.electronAPI.selectDir();
     if (dir) {
       const name = dir.split('/').pop() || '新项目';
-      await createProjectFromTemplate(templateId, dir, name);
+      addProject(name, dir);
     }
   };
 
-  const totalSessions = projects.reduce((n, p) => n + p.sessions.length, 0);
-
-  // ── Context menu helpers ──────────────────────────────────────────────
-
+  // ── Context menu helpers ──────────────────────────────────────────
   const showContextMenu = useCallback((e, items) => {
     e.preventDefault();
     e.stopPropagation();
     setContextMenu({ x: e.clientX, y: e.clientY, items });
   }, []);
 
-  const closeContextMenu = useCallback(() => {
-    setContextMenu(null);
-  }, []);
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
   // Right-click on a group header
   const handleGroupContextMenu = useCallback((e, group) => {
@@ -545,9 +94,7 @@ export default function Sidebar() {
         onClick: () => removeGroup(group.id),
       });
     }
-    if (items.length > 0) {
-      showContextMenu(e, items);
-    }
+    if (items.length > 0) showContextMenu(e, items);
   }, [showContextMenu, removeGroup]);
 
   // Right-click on a project header
@@ -556,7 +103,6 @@ export default function Sidebar() {
     const items = [];
 
     if (userGroups.length > 0) {
-      // Show "Move to group" submenu items
       items.push({ label: '移动到分组', icon: <IconMoveToFolder />, separator: false, onClick: () => {} });
       userGroups.forEach((g) => {
         items.push({
@@ -564,12 +110,8 @@ export default function Sidebar() {
           onClick: () => moveProjectToGroup(project.id, g.id),
         });
       });
-      // Option to move back to ungrouped
       if (project.groupId) {
-        items.push({
-          label: '  未分组',
-          onClick: () => moveProjectToGroup(project.id, null),
-        });
+        items.push({ label: '  未分组', onClick: () => moveProjectToGroup(project.id, null) });
       }
       items.push({ separator: true });
     }
@@ -593,27 +135,77 @@ export default function Sidebar() {
     showContextMenu(e, items);
   }, [showContextMenu, groups, moveProjectToGroup, createGroup]);
 
+  // ── External drag-drop: Finder folder -> add as new project ────────
+  const handleSidebarDragEnter = useCallback((e) => {
+    if (!isExternalDrop(e)) return;
+    sidebarDragCounterRef.current += 1;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setIsSidebarDragOver(true);
+  }, []);
+
+  const handleSidebarDragOver = useCallback((e) => {
+    if (!isExternalDrop(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const handleSidebarDragLeave = useCallback(() => {
+    sidebarDragCounterRef.current -= 1;
+    if (sidebarDragCounterRef.current <= 0) {
+      sidebarDragCounterRef.current = 0;
+      setIsSidebarDragOver(false);
+    }
+  }, []);
+
+  const handleSidebarDrop = useCallback((e) => {
+    e._handled = true;
+    e.preventDefault();
+    e.stopPropagation();
+
+    setIsSidebarDragOver(false);
+    sidebarDragCounterRef.current = 0;
+
+    if (!isExternalDrop(e)) return;
+
+    let addedAny = false;
+    for (const item of Array.from(e.dataTransfer.items)) {
+      const entry = item.webkitGetAsEntry?.();
+      const file = item.getAsFile?.();
+      if (!file?.path) continue;
+      if (entry?.isDirectory) {
+        const name = file.path.split('/').filter(Boolean).pop() || file.path;
+        addProject(name, file.path);
+        addToast({ message: `已添加项目: ${name}`, type: 'success' });
+        addedAny = true;
+      }
+    }
+    if (!addedAny) {
+      addToast({ message: '请拖入文件夹以添加新项目', type: 'info' });
+    }
+  }, [addProject, addToast]);
+
   // Commit group rename
   const commitGroupRename = useCallback(() => {
     if (groupRenameDraft) {
       const trimmed = groupRenameDraft.value.trim();
-      if (trimmed) {
-        renameGroup(groupRenameDraft.groupId, trimmed);
-      }
+      if (trimmed) renameGroup(groupRenameDraft.groupId, trimmed);
       setGroupRenameDraft(null);
     }
   }, [groupRenameDraft, renameGroup]);
 
+  // ── Render ─────────────────────────────────────────────────────────
   return (
     <aside style={{ ...styles.sidebar, width: sidebarWidth }}>
-      {/* Right-edge resizer handle for drag-to-resize */}
+      {/* Right-edge resizer handle */}
       <div
         onMouseDown={onResizerMouseDown}
         style={styles.resizer}
         className="sidebar-resizer"
         title="拖动调整宽度"
       />
-      {/* ═══ Window drag region + brand ══════════════════════════════════ */}
+
+      {/* Window drag region + brand */}
       <div style={styles.header} className="drag-region">
         <div style={styles.headerLogo}>
           <div style={styles.logoMark}>
@@ -622,14 +214,14 @@ export default function Sidebar() {
           <div style={styles.logoTextGroup}>
             <div style={styles.logoTextRow}>
               <span style={styles.logoText}>智枢</span>
-              <span style={styles.logoBadge}>AI HUB</span>
+              <span style={styles.logoBadge}>ZhiShu</span>
             </div>
-            <span style={styles.logoSubText}>ZHISHU · 多 Agent 智能终端</span>
+            <span style={styles.logoSubText}>Multi-Agent AI Terminal</span>
           </div>
         </div>
       </div>
 
-      {/* ═══ Stats strip ═════════════════════════════════════════════════ */}
+      {/* Stats strip */}
       <div style={styles.statsStrip}>
         <div style={styles.statItem}>
           <span style={styles.statValue}>{projects.length}</span>
@@ -642,71 +234,36 @@ export default function Sidebar() {
         </div>
         <div style={styles.statDivider} />
         <div style={styles.statItem}>
-          <span style={{
-            ...styles.statValue,
-            color: runningCount > 0 ? '#f59e0b' : '#3a3a3a',
-          }}>
+          <span style={{ ...styles.statValue, color: runningCount > 0 ? '#f59e0b' : '#3a3a3a' }}>
             {runningCount}
           </span>
           <span style={styles.statLabel}>运行</span>
         </div>
         <div style={styles.statDivider} />
         <div style={styles.statItem}>
-          <span style={{
-            ...styles.statValue,
-            color: reviewCount > 0 ? '#22c55e' : '#3a3a3a',
-          }}>
+          <span style={{ ...styles.statValue, color: reviewCount > 0 ? '#22c55e' : '#3a3a3a' }}>
             {reviewCount}
           </span>
           <span style={styles.statLabel}>待审</span>
         </div>
       </div>
 
-      {/* ═══ Section header ══════════════════════════════════════════════ */}
+      {/* Section header */}
       <div style={styles.sectionHeader}>
         <span style={styles.sectionLabel}>项目 & 会话</span>
-        <div style={{ position: 'relative' }}>
-          <button
-            style={styles.addProjectBtn}
-            onClick={() => setTemplateMenuOpen((v) => !v)}
-            title="新建项目"
-          >
-            <IconPlus size={11} />
-          </button>
-          {templateMenuOpen && (
-            <>
-              {/* Click-outside backdrop */}
-              <div
-                onClick={() => setTemplateMenuOpen(false)}
-                style={{
-                  position: 'fixed', inset: 0, zIndex: 99,
-                }}
-              />
-              {/* Dropdown menu */}
-              <div style={styles.templateMenu}>
-                <div style={styles.menuHeader}>选择模板</div>
-                {PROJECT_TEMPLATES.map((tpl) => (
-                  <button
-                    key={tpl.id}
-                    style={styles.templateItem}
-                    onClick={() => handlePickTemplate(tpl.id)}
-                    className="template-item"
-                  >
-                    <span style={styles.templateIcon}>{tpl.icon}</span>
-                    <div style={styles.templateInfo}>
-                      <div style={styles.templateName}>{tpl.name}</div>
-                      <div style={styles.templateDesc}>{tpl.description}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        <button style={styles.addProjectBtn} onClick={handleAddProject} title="新建项目（选择目录）">
+          <IconPlus size={11} />
+        </button>
       </div>
 
-      {/* ═══ Projects list ═══════════════════════════════════════════════ */}
-      <div style={styles.projectsList}>
+      {/* Projects list (also serves as folder drop zone) */}
+      <div
+        style={{ ...styles.projectsList, ...(isSidebarDragOver ? styles.projectsListDragOver : {}) }}
+        onDragEnter={handleSidebarDragEnter}
+        onDragOver={handleSidebarDragOver}
+        onDragLeave={handleSidebarDragLeave}
+        onDrop={handleSidebarDrop}
+      >
         {projects.length === 0 ? (
           <div style={styles.emptyHint}>
             <div style={styles.emptyIcon}>&#9670;</div>
@@ -714,17 +271,14 @@ export default function Sidebar() {
             <p style={styles.emptySubText}>点击右上角 + 添加你的第一个项目</p>
           </div>
         ) : hasUserGroups ? (
-          // Grouped view: iterate over ordered groups, render projects under each
           orderedGroups.map((group) => {
             const groupProjects = group.id === 'ungrouped'
               ? projects.filter((p) => !p.groupId)
               : projects.filter((p) => p.groupId === group.id);
-            // Hide empty ungrouped section when there are no ungrouped projects
             if (group.id === 'ungrouped' && groupProjects.length === 0) return null;
             const collapsed = group.collapsed || false;
             return (
               <div key={group.id} style={styles.groupSection}>
-                {/* Group header */}
                 <div
                   style={styles.groupHeader}
                   onClick={() => toggleGroupCollapsed(group.id)}
@@ -754,7 +308,6 @@ export default function Sidebar() {
                   )}
                   <span style={styles.groupCount}>{groupProjects.length}</span>
                 </div>
-                {/* Projects inside this group */}
                 {!collapsed && groupProjects.map((project) => (
                   <ProjectSection
                     key={project.id}
@@ -768,7 +321,6 @@ export default function Sidebar() {
             );
           })
         ) : (
-          // Flat view: no user groups exist, render as before
           projects.map((project) => (
             <ProjectSection
               key={project.id}
@@ -781,7 +333,7 @@ export default function Sidebar() {
         )}
       </div>
 
-      {/* ═══ Footer ══════════════════════════════════════════════════════ */}
+      {/* Footer */}
       <div style={styles.footer}>
         <span style={styles.footerText}>双击名称重命名 | 右键分组</span>
       </div>
@@ -798,477 +350,3 @@ export default function Sidebar() {
     </aside>
   );
 }
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
-const styles = {
-  sidebar: {
-    minWidth: 180,
-    maxWidth: 420,
-    background: '#0b0b0b',
-    borderRight: '1px solid #161616',
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100vh',
-    userSelect: 'none',
-    flexShrink: 0,
-    position: 'relative',
-  },
-  resizer: {
-    position: 'absolute',
-    top: 0,
-    right: -3,
-    bottom: 0,
-    width: 6,
-    cursor: 'col-resize',
-    zIndex: 100,
-    background: 'transparent',
-    transition: 'background 0.15s',
-  },
-
-  // Header with macOS traffic-light space
-  // Drag region is set via `.drag-region` className (see global CSS in index.js)
-  header: {
-    padding: '14px 16px 14px',
-    paddingTop: 42,
-    borderBottom: '1px solid #141414',
-  },
-  headerLogo: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 12,
-  },
-  logoMark: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 36,
-    height: 36,
-    filter: 'drop-shadow(0 2px 8px rgba(245, 158, 11, 0.25))',
-  },
-  logoTextGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 3,
-    minWidth: 0,
-  },
-  logoTextRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-  },
-  logoText: {
-    fontSize: 18,
-    fontWeight: 700,
-    color: '#fafafa',
-    fontFamily: '"PingFang SC", "Inter", "SF Pro Display", system-ui',
-    letterSpacing: '0.04em',
-    lineHeight: 1,
-    background: 'linear-gradient(135deg, #fde68a 0%, #fbbf24 50%, #f59e0b 100%)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-    backgroundClip: 'text',
-  },
-  logoBadge: {
-    fontSize: 8,
-    fontWeight: 700,
-    fontFamily: '"JetBrains Mono", monospace',
-    color: '#f59e0b',
-    background: 'rgba(245, 158, 11, 0.1)',
-    border: '1px solid rgba(245, 158, 11, 0.28)',
-    borderRadius: 3,
-    padding: '2px 5px',
-    letterSpacing: '0.1em',
-    lineHeight: 1,
-  },
-  logoSubText: {
-    fontSize: 9,
-    fontWeight: 500,
-    color: '#3a3a3a',
-    fontFamily: '"Inter", system-ui',
-    lineHeight: 1.2,
-    letterSpacing: '0.04em',
-  },
-
-  // Stats strip
-  statsStrip: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    padding: '10px 12px',
-    background: '#0a0a0a',
-    borderBottom: '1px solid #141414',
-  },
-  statItem: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: 2,
-  },
-  statValue: {
-    fontSize: 13,
-    fontWeight: 600,
-    color: '#d1d5db',
-    fontFamily: '"JetBrains Mono", monospace',
-    lineHeight: 1.2,
-  },
-  statLabel: {
-    fontSize: 9,
-    color: '#3a3a3a',
-    fontFamily: 'system-ui',
-    letterSpacing: '0.05em',
-    textTransform: 'uppercase',
-  },
-  statDivider: {
-    width: 1,
-    height: 20,
-    background: '#161616',
-  },
-
-  // Section header
-  sectionHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '12px 14px 8px',
-  },
-  sectionLabel: {
-    fontSize: 10,
-    color: '#333',
-    fontFamily: 'system-ui',
-    letterSpacing: '0.1em',
-    textTransform: 'uppercase',
-    fontWeight: 600,
-  },
-  addProjectBtn: {
-    background: '#151515',
-    border: '1px solid #232323',
-    borderRadius: 4,
-    color: '#888',
-    cursor: 'pointer',
-    padding: '3px 5px',
-    display: 'flex',
-    alignItems: 'center',
-    outline: 'none',
-    transition: 'all 0.15s',
-  },
-  templateMenu: {
-    position: 'absolute',
-    top: 'calc(100% + 6px)',
-    right: 0,
-    width: 260,
-    background: '#0d0d0d',
-    border: '1px solid #1e1e1e',
-    borderRadius: 8,
-    boxShadow: '0 12px 32px rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.4)',
-    padding: 6,
-    zIndex: 100,
-    animation: 'toast-in 0.18s ease',
-  },
-  menuHeader: {
-    fontSize: 9,
-    color: '#3a3a3a',
-    padding: '6px 10px 4px',
-    fontWeight: 700,
-    letterSpacing: '0.1em',
-    textTransform: 'uppercase',
-  },
-  templateItem: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: 10,
-    width: '100%',
-    background: 'transparent',
-    border: 'none',
-    borderRadius: 5,
-    padding: '8px 10px',
-    cursor: 'pointer',
-    textAlign: 'left',
-    transition: 'background 0.1s',
-  },
-  templateIcon: {
-    fontSize: 14,
-    color: '#f59e0b',
-    marginTop: 1,
-    flexShrink: 0,
-  },
-  templateInfo: { flex: 1, minWidth: 0 },
-  templateName: {
-    fontSize: 12,
-    fontWeight: 600,
-    color: '#d0d0d0',
-    fontFamily: 'var(--font-ui)',
-    marginBottom: 2,
-  },
-  templateDesc: {
-    fontSize: 10,
-    color: '#555',
-    fontFamily: 'var(--font-ui)',
-    lineHeight: 1.4,
-  },
-
-  // Projects list
-  projectsList: {
-    flex: 1,
-    overflowY: 'auto',
-    overflowX: 'hidden',
-    padding: '0 0 8px',
-  },
-  projectSection: {
-    marginBottom: 3,
-  },
-  projectHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '6px 10px 6px 10px',
-    cursor: 'pointer',
-    borderRadius: 5,
-    margin: '0 6px',
-    transition: 'background 0.1s',
-  },
-  chevron: {
-    color: '#383838',
-    flexShrink: 0,
-    display: 'flex',
-    alignItems: 'center',
-    width: 9,
-  },
-  folderIcon: {
-    color: '#f59e0b',
-    flexShrink: 0,
-    display: 'flex',
-  },
-  projectName: {
-    fontSize: 12,
-    fontWeight: 600,
-    color: '#c8ccd1',
-    fontFamily: 'system-ui',
-    flex: 1,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    letterSpacing: '-0.005em',
-  },
-  projectPath: {
-    fontSize: 10,
-    color: '#2a2a2a',
-    fontFamily: '"JetBrains Mono", monospace',
-    padding: '0 10px 4px 32px',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  projectActions: {
-    display: 'flex',
-    gap: 1,
-    alignItems: 'center',
-  },
-
-  // Session rows
-  sessionRow: {
-    position: 'relative',
-    display: 'flex',
-    cursor: 'pointer',
-    borderRadius: 4,
-    margin: '1px 6px',
-    transition: 'background 0.1s',
-    padding: '5px 10px 5px 30px',
-  },
-  sessionMainRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 7,
-    width: '100%',
-  },
-  sessionActions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 1,
-    flexShrink: 0,
-  },
-  renameInput: {
-    flex: 1,
-    background: '#1a1a1a',
-    border: '1px solid #f59e0b',
-    borderRadius: 3,
-    color: '#e2e8f0',
-    fontSize: 12,
-    fontFamily: 'var(--font-ui)',
-    padding: '2px 6px',
-    outline: 'none',
-    minWidth: 0,
-  },
-  sessionSubLine: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 4,
-    fontSize: 10,
-    fontFamily: 'var(--font-mono)',
-    fontVariantNumeric: 'tabular-nums',
-    paddingLeft: 18,
-    paddingTop: 2,
-    paddingBottom: 1,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  subLineDim: {
-    color: '#444',
-    fontWeight: 500,
-  },
-  subLineMuted: {
-    color: '#3a3a3a',
-    fontWeight: 500,
-  },
-  sessionRowHover: {
-    background: '#131313',
-  },
-  sessionRowActive: {
-    background: 'linear-gradient(to right, rgba(245, 158, 11, 0.08), transparent)',
-  },
-  activeBar: {
-    position: 'absolute',
-    left: 6,
-    top: 6,
-    bottom: 6,
-    width: 2,
-    borderRadius: 2,
-    background: '#f59e0b',
-    transition: 'opacity 0.15s',
-  },
-  sessionIcon: {
-    display: 'flex',
-    flexShrink: 0,
-    transition: 'color 0.15s',
-  },
-  sessionName: {
-    fontSize: 12,
-    fontFamily: 'system-ui',
-    flex: 1,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    transition: 'all 0.15s',
-  },
-  iconBtn: {
-    background: 'transparent',
-    border: 'none',
-    cursor: 'pointer',
-    padding: '3px 4px',
-    display: 'flex',
-    alignItems: 'center',
-    borderRadius: 3,
-    outline: 'none',
-    transition: 'color 0.15s',
-  },
-
-  // Running-status pulsing dot shown on the right side of a session row
-  // when an AI tool is active in that session.
-  runningPulse: {
-    width: 6,
-    height: 6,
-    borderRadius: '50%',
-    animation: 'pulse 1.8s ease-in-out infinite',
-    flexShrink: 0,
-    marginRight: 2,
-  },
-
-  // Inline edit input
-  inlineInput: {
-    background: '#1a1a1a',
-    border: '1px solid #3a3a3a',
-    borderRadius: 3,
-    color: '#e2e8f0',
-    fontSize: 12,
-    fontFamily: 'system-ui',
-    padding: '2px 5px',
-    outline: 'none',
-    flex: 1,
-    minWidth: 0,
-  },
-
-  // Empty state
-  emptyHint: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    padding: '40px 16px',
-    gap: 8,
-  },
-  emptyIcon: {
-    fontSize: 28,
-    color: '#1e1e1e',
-    marginBottom: 4,
-  },
-  emptyText: {
-    fontSize: 11,
-    color: '#444',
-    fontFamily: 'system-ui',
-  },
-  emptySubText: {
-    fontSize: 10,
-    color: '#2a2a2a',
-    fontFamily: 'system-ui',
-    textAlign: 'center',
-    lineHeight: 1.5,
-  },
-
-  // Footer
-  footer: {
-    padding: '8px 14px 12px',
-    borderTop: '1px solid #121212',
-  },
-  footerText: {
-    fontSize: 9,
-    color: '#262626',
-    fontFamily: 'system-ui',
-    letterSpacing: '0.02em',
-  },
-
-  // Group section (contains group header + project sections)
-  groupSection: {
-    marginBottom: 2,
-  },
-  groupHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '6px 10px 5px 8px',
-    cursor: 'pointer',
-    borderRadius: 5,
-    margin: '0 6px',
-    transition: 'background 0.1s',
-    userSelect: 'none',
-  },
-  groupName: {
-    fontSize: 11,
-    fontWeight: 600,
-    color: '#888',
-    fontFamily: 'system-ui',
-    flex: 1,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    letterSpacing: '0.02em',
-  },
-  groupCount: {
-    fontSize: 10,
-    color: '#333',
-    fontFamily: '"JetBrains Mono", monospace',
-    fontWeight: 500,
-    flexShrink: 0,
-  },
-  groupRenameInput: {
-    flex: 1,
-    background: '#1a1a1a',
-    border: '1px solid #f59e0b',
-    borderRadius: 3,
-    color: '#e2e8f0',
-    fontSize: 11,
-    fontFamily: 'system-ui',
-    padding: '1px 5px',
-    outline: 'none',
-    minWidth: 0,
-  },
-};

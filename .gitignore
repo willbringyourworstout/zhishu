@@ -52,3 +52,9 @@ build-assets/icon.iconset/
 
 # ─── AI tool local config (user-specific, not project-level) ──
 .claude/
+
+# ─── Playwright MCP test artifacts ──
+.playwright-mcp/
+
+# ─── Code review artifacts (temporary) ──
+reviews/
