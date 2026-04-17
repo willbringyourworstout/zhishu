@@ -152,8 +152,8 @@ function broadcastResponseComplete(sessionId, tool, duration) {
 // fallback).  Idempotent: calling it twice is safe — the second call is a
 // no-op because sessionStatus already reflects the cleaned state.
 
-function cleanupSession(sessionId) {
-  // 1. Transition status: if a tool was running, record lastRanTool/duration
+// AI tool exited but pty shell is still alive. Only clear tool-related state.
+function resetToolState(sessionId) {
   const prev = sessionStatus.get(sessionId);
   if (prev?.tool) {
     const next = {
@@ -168,14 +168,19 @@ function cleanupSession(sessionId) {
     broadcastStatus(sessionId, next);
   }
 
-  // 2. Clear all per-session bookkeeping
-  ptyProcesses.delete(sessionId);
-  ptyMeta.delete(sessionId);
-  sessionStatus.delete(sessionId);
   sessionLaunchedTool.delete(sessionId);
 
   const pending = notifyTimers.get(sessionId);
   if (pending) { clearTimeout(pending); notifyTimers.delete(sessionId); }
+}
+
+// Pty process fully exited. Clear everything including the pty reference.
+function cleanupSession(sessionId) {
+  resetToolState(sessionId);
+
+  ptyProcesses.delete(sessionId);
+  ptyMeta.delete(sessionId);
+  sessionStatus.delete(sessionId);
 }
 
 // ─── Cleanup for before-quit ──────────────────────────────────────────────
@@ -343,6 +348,7 @@ module.exports = {
   loadPtyModule,
   killPtyTree,
   cleanupSession,
+  resetToolState,
   interruptAndRunInShell,
   broadcastStatus,
   broadcastResponseComplete,

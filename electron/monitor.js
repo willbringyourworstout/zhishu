@@ -21,6 +21,7 @@ const {
   broadcastResponseComplete,
   isNotificationsEnabled,
   cleanupSession,
+  resetToolState,
 } = require('./pty');
 const { TOOL_CATALOG } = require('./tools');
 const { collectResourceSnapshot } = require('./resourceMonitor');
@@ -271,7 +272,7 @@ async function monitorTick(powerMonitor) {
     // onExit handler.  The call is idempotent — if onExit already cleaned
     // up, this is a no-op because sessionStatus no longer has .tool set.
     else if (prev.tool) {
-      cleanupSession(sessionId);
+      resetToolState(sessionId);
 
       if (meta) meta.hasUserInput = false;
     }

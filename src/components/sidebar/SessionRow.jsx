@@ -110,7 +110,7 @@ const SessionRow = React.memo(function SessionRow({ session, projectId, isActive
 
         <span style={{
           ...styles.sessionIcon,
-          color: isActive ? '#f59e0b' : '#3a3a3a',
+          color: isActive ? '#f59e0b' : 'var(--text-tertiary, #71717a)',
         }}>
           <IconTerminal />
         </span>

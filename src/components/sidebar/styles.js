@@ -4,8 +4,8 @@ const styles = {
   sidebar: {
     minWidth: 180,
     maxWidth: 'min(420px, 30vw)',
-    background: '#0b0b0b',
-    borderRight: '1px solid #161616',
+    background: 'var(--bg-sidebar, #101012)',
+    borderRight: '1px solid var(--border-light, #1e1e22)',
     display: 'flex',
     flexDirection: 'column',
     height: '100vh',
@@ -30,7 +30,7 @@ const styles = {
   header: {
     padding: '14px 16px 14px',
     paddingTop: 42,
-    borderBottom: '1px solid #141414',
+    borderBottom: '1px solid var(--border-subtle, #18181b)',
   },
   headerLogo: {
     display: 'flex',
@@ -83,7 +83,7 @@ const styles = {
   logoSubText: {
     fontSize: 9,
     fontWeight: 500,
-    color: '#3a3a3a',
+    color: 'var(--text-tertiary, #71717a)',
     fontFamily: '"Inter", system-ui',
     lineHeight: 1.2,
     letterSpacing: '0.04em',
@@ -95,8 +95,8 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'space-around',
     padding: '10px 12px',
-    background: '#0a0a0a',
-    borderBottom: '1px solid #141414',
+    background: 'var(--bg-deep, #09090b)',
+    borderBottom: '1px solid var(--border-subtle, #18181b)',
   },
   statItem: {
     display: 'flex',
@@ -113,7 +113,7 @@ const styles = {
   },
   statLabel: {
     fontSize: 9,
-    color: '#3a3a3a',
+    color: 'var(--text-tertiary, #71717a)',
     fontFamily: 'system-ui',
     letterSpacing: '0.05em',
     textTransform: 'uppercase',
@@ -121,7 +121,7 @@ const styles = {
   statDivider: {
     width: 1,
     height: 20,
-    background: '#161616',
+    background: 'var(--border-subtle, #18181b)',
   },
 
   // Section header
@@ -133,7 +133,7 @@ const styles = {
   },
   sectionLabel: {
     fontSize: 10,
-    color: '#333',
+    color: 'var(--text-tertiary, #71717a)',
     fontFamily: 'system-ui',
     letterSpacing: '0.1em',
     textTransform: 'uppercase',
@@ -166,7 +166,7 @@ const styles = {
   },
   menuHeader: {
     fontSize: 9,
-    color: '#3a3a3a',
+    color: 'var(--text-tertiary, #71717a)',
     padding: '6px 10px 4px',
     fontWeight: 700,
     letterSpacing: '0.1em',
@@ -232,7 +232,7 @@ const styles = {
     transition: 'background 0.1s',
   },
   chevron: {
-    color: '#383838',
+    color: 'var(--text-dim, #52525b)',
     flexShrink: 0,
     display: 'flex',
     alignItems: 'center',
@@ -256,7 +256,7 @@ const styles = {
   },
   projectPath: {
     fontSize: 10,
-    color: '#2a2a2a',
+    color: 'var(--text-faint, #3f3f46)',
     fontFamily: '"JetBrains Mono", monospace',
     padding: '0 10px 4px 32px',
     overflow: 'hidden',
@@ -322,7 +322,7 @@ const styles = {
     fontWeight: 500,
   },
   subLineMuted: {
-    color: '#3a3a3a',
+    color: 'var(--text-tertiary, #71717a)',
     fontWeight: 500,
   },
   sessionRowHover: {
@@ -381,7 +381,7 @@ const styles = {
   // Inline edit input
   inlineInput: {
     background: '#1a1a1a',
-    border: '1px solid #3a3a3a',
+    border: '1px solid var(--text-tertiary, #71717a)',
     borderRadius: 3,
     color: '#e2e8f0',
     fontSize: 12,
@@ -412,7 +412,7 @@ const styles = {
   },
   emptySubText: {
     fontSize: 10,
-    color: '#2a2a2a',
+    color: 'var(--text-faint, #3f3f46)',
     fontFamily: 'system-ui',
     textAlign: 'center',
     lineHeight: 1.5,
@@ -421,11 +421,11 @@ const styles = {
   // Footer
   footer: {
     padding: '8px 14px 12px',
-    borderTop: '1px solid #121212',
+    borderTop: '1px solid var(--border-subtle, #18181b)',
   },
   footerText: {
     fontSize: 9,
-    color: '#262626',
+    color: 'var(--text-faint, #3f3f46)',
     fontFamily: 'system-ui',
     letterSpacing: '0.02em',
   },

@@ -29,36 +29,36 @@ globalStyle.textContent = `
   :root,
   :root[data-theme='dark'] {
     /* Background layers (darkest → lightest used) */
-    --bg-root:          #0a0a0a;
-    --bg-sidebar:       #0b0b0b;
-    --bg-main:          #0d0d0d;
-    --bg-toolbar:       #0f0f0f;
-    --bg-card:          #111111;
-    --bg-input:         #0a0a0a;
-    --bg-button:        #151515;
-    --bg-hover:         #131313;
-    --bg-header-hover:  #141414;
-    --bg-panel-header:  #0d0d0d;
-    --bg-deep:          #080808;
+    --bg-root:          #0e0e10;
+    --bg-sidebar:       #101012;
+    --bg-main:          #121214;
+    --bg-toolbar:       #141416;
+    --bg-card:          #18181b;
+    --bg-input:         #0e0e10;
+    --bg-button:        #1a1a1e;
+    --bg-hover:         #1c1c20;
+    --bg-header-hover:  #1e1e22;
+    --bg-panel-header:  #121214;
+    --bg-deep:          #09090b;
 
     /* Borders */
-    --border-base:      #1a1a1a;
-    --border-light:     #161616;
-    --border-subtle:    #121212;
-    --border-mid:       #1e1e1e;
-    --border-input:     #2a2a2a;
-    --border-button:    #232323;
+    --border-base:      #27272a;
+    --border-light:     #1e1e22;
+    --border-subtle:    #18181b;
+    --border-mid:       #2a2a2e;
+    --border-input:     #3a3a3e;
+    --border-button:    #2a2a2e;
 
-    /* Text layers */
-    --text-primary:     #e2e8f0;
-    --text-secondary:   #a0a0a0;
-    --text-tertiary:    #555555;
-    --text-mute:        #2a2a2a;
-    --text-heading:     #d0d0d0;
-    --text-label:       #333333;
-    --text-dim:         #3a3a3a;
-    --text-placeholder: #444444;
-    --text-faint:       #262626;
+    /* Text layers — optimized for WCAG AA contrast on dark backgrounds */
+    --text-primary:     #f0f0f2;
+    --text-secondary:   #a1a1aa;
+    --text-tertiary:    #71717a;
+    --text-mute:        #3f3f46;
+    --text-heading:     #e4e4e7;
+    --text-label:       #71717a;
+    --text-dim:         #52525b;
+    --text-placeholder: #52525b;
+    --text-faint:       #3f3f46;
   }
 
   :root[data-theme='light'] {
@@ -112,8 +112,8 @@ globalStyle.textContent = `
   /* Thin, subtle scrollbars matching the dark palette */
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: #333; }
+  ::-webkit-scrollbar-thumb { background: var(--border-base, #27272a); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary, #71717a); }
 
   /* xterm.js — inherit dark aesthetic */
   .xterm { height: 100%; padding: 2px 0; }
@@ -133,7 +133,7 @@ globalStyle.textContent = `
   input { font-family: var(--font-ui); }
 
   /* File tree row hover */
-  .tree-row:hover { background: #161616; color: #e2e8f0 !important; }
+  .tree-row:hover { background: var(--bg-hover, #1c1c20); color: var(--text-primary, #f0f0f2) !important; }
 
   /* Template menu item hover */
   .template-item:hover { background: #1a1a1a; }
@@ -147,14 +147,14 @@ globalStyle.textContent = `
   .panel-resizer:active { background: rgba(245, 158, 11, 0.65) !important; }
 
   /* Context menu item hover */
-  .ctx-item:hover { background: #1a1a1a; }
+  .ctx-item:hover { background: var(--bg-hover, #1c1c20); }
 
   /* Prompt template item hover */
   .template-item:hover { background: #151515; }
   .template-item:hover .template-action-btn { color: #888 !important; }
 
   /* Sidebar action button hover (project + session row buttons) */
-  .sidebar-action-btn:hover { color: #fff !important; background: #222 !important; }
+  .sidebar-action-btn:hover { color: #fff !important; background: var(--bg-hover, #1c1c20) !important; }
 
   /* Drag-over highlight on the terminal area when dragging a file in */
   .terminal-drop-zone-active {
@@ -203,7 +203,7 @@ globalStyle.textContent = `
   }
 
   /* Repo card hover (multi-repo git scan view) */
-  .repo-card:hover { background: #131313; border-color: #1e1e1e; }
+  .repo-card:hover { background: var(--bg-hover, #1c1c20); border-color: var(--border-mid, #2a2a2e); }
 
   /* Todo in_progress subtle border pulse */
   @keyframes todo-pulse {

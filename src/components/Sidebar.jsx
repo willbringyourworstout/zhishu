@@ -235,21 +235,21 @@ export default function Sidebar() {
         </div>
         <div style={styles.statDivider} />
         <div style={styles.statItem}>
-          <span style={{ ...styles.statValue, color: runningCount > 0 ? '#f59e0b' : '#3a3a3a' }}>
+          <span style={{ ...styles.statValue, color: runningCount > 0 ? '#f59e0b' : 'var(--text-faint, #3f3f46)' }}>
             {runningCount}
           </span>
           <span style={styles.statLabel}>运行</span>
         </div>
         <div style={styles.statDivider} />
         <div style={styles.statItem}>
-          <span style={{ ...styles.statValue, color: reviewCount > 0 ? '#22c55e' : '#3a3a3a' }}>
+          <span style={{ ...styles.statValue, color: reviewCount > 0 ? '#22c55e' : 'var(--text-faint, #3f3f46)' }}>
             {reviewCount}
           </span>
           <span style={styles.statLabel}>待审</span>
         </div>
         <div style={styles.statDivider} />
         <div style={styles.statItem}>
-          <span style={{ ...styles.statValue, color: idleCount > 0 ? '#3b82f6' : '#3a3a3a' }}>
+          <span style={{ ...styles.statValue, color: idleCount > 0 ? '#3b82f6' : 'var(--text-faint, #3f3f46)' }}>
             {idleCount}
           </span>
           <span style={styles.statLabel}>待命</span>

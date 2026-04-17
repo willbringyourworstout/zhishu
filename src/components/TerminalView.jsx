@@ -89,7 +89,7 @@ function PhaseBadge({ phase, toolInfo, duration }) {
   if (!toolInfo || phase === 'not_started' || !phase) {
     return (
       <div style={badgeStyles.wrapper}>
-        <span style={{ ...badgeStyles.dot, background: '#2a2a2a' }} />
+        <span style={{ ...badgeStyles.dot, background: 'var(--text-faint, #3f3f46)' }} />
         <span style={badgeStyles.labelDim}>未启动</span>
       </div>
     );
@@ -173,21 +173,21 @@ const badgeStyles = {
   },
   tag: {
     fontSize: 10,
-    color: '#5a5a5a',
+    color: 'var(--text-dim, #52525b)',
     fontFamily: 'system-ui',
     letterSpacing: '0.02em',
   },
   labelDim: {
     fontSize: 11,
-    color: '#3a3a3a',
+    color: 'var(--text-tertiary, #71717a)',
     fontWeight: 500,
     fontFamily: 'system-ui',
   },
   timer: {
     fontSize: 11,
-    color: '#666',
+    color: 'var(--text-tertiary, #71717a)',
     fontVariantNumeric: 'tabular-nums',
-    fontFamily: '"JetBrains Mono", monospace',
+    fontFamily: 'var(--font-mono, monospace)',
   },
 };
 
@@ -1045,7 +1045,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
-    background: '#0d0d0d',
+    background: 'var(--bg-main, #121214)',
     overflow: 'hidden',
   },
   // Thin invisible drag strip above the toolbar — only this consumes clicks
@@ -1062,8 +1062,8 @@ const styles = {
     justifyContent: 'space-between',
     gap: 8,
     padding: '8px 14px 10px',
-    background: 'linear-gradient(to bottom, #0f0f0f, #0c0c0c)',
-    borderBottom: '1px solid #1a1a1a',
+    background: `linear-gradient(to bottom, var(--bg-toolbar, #141416), var(--bg-main, #121214))`,
+    borderBottom: '1px solid var(--border-base, #27272a)',
     flexShrink: 0,
     minHeight: 46,
     overflow: 'hidden',
@@ -1091,12 +1091,12 @@ const styles = {
     alignItems: 'center',
     gap: 4,
     padding: '5px 7px',
-    border: '1px solid #252525',
+    border: '1px solid var(--border-button, #2a2a2e)',
     borderRadius: 5,
     cursor: 'pointer',
     transition: 'all 0.2s',
     outline: 'none',
-    fontFamily: '"JetBrains Mono", monospace',
+    fontFamily: 'var(--font-mono, monospace)',
     fontSize: 10,
     fontWeight: 700,
     letterSpacing: '0.08em',
@@ -1112,15 +1112,15 @@ const styles = {
   divider: {
     width: 1,
     height: 20,
-    background: '#1e1e1e',
+    background: 'var(--border-base, #27272a)',
   },
   cwdBadge: {
     display: 'flex',
     alignItems: 'center',
     gap: 4,
     fontSize: 11,
-    color: '#555',
-    fontFamily: '"JetBrains Mono", monospace',
+    color: 'var(--text-tertiary, #71717a)',
+    fontFamily: 'var(--font-mono, monospace)',
     maxWidth: 200,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -1129,14 +1129,14 @@ const styles = {
     minWidth: 0,
   },
   cwdIcon: {
-    color: '#333',
+    color: 'var(--text-dim, #52525b)',
     fontSize: 10,
   },
 
   // ── Shared icon-only button (bell / pin / settings) ────────────────────
   iconOnlyBtn: {
-    background: '#121212',
-    border: '1px solid #1e1e1e',
+    background: 'var(--bg-button, #1a1a1e)',
+    border: '1px solid var(--border-button, #2a2a2e)',
     borderRadius: 5,
     cursor: 'pointer',
     padding: '4px 6px',
@@ -1158,12 +1158,12 @@ const styles = {
     alignItems: 'center',
     gap: 14,
     padding: '6px 16px',
-    background: '#0a0a0a',
-    borderBottom: '1px solid #161616',
+    background: 'var(--bg-deep, #09090b)',
+    borderBottom: '1px solid var(--border-subtle, #18181b)',
     flexShrink: 0,
     minHeight: 26,
     fontSize: 10,
-    fontFamily: '"JetBrains Mono", monospace',
+    fontFamily: 'var(--font-mono, monospace)',
     overflow: 'hidden',
   },
   monitorSegment: {
@@ -1174,24 +1174,24 @@ const styles = {
   },
   monitorLabel: {
     fontSize: 9,
-    color: '#333',
+    color: 'var(--text-dim, #52525b)',
     fontWeight: 700,
     letterSpacing: '0.1em',
   },
   monitorValue: {
     fontSize: 11,
-    color: '#b0b0b0',
+    color: 'var(--text-secondary, #a1a1aa)',
     fontWeight: 500,
     fontVariantNumeric: 'tabular-nums',
   },
   monitorDim: {
     fontSize: 11,
-    color: '#2a2a2a',
+    color: 'var(--text-faint, #3f3f46)',
   },
   monitorDivider: {
     width: 1,
     height: 12,
-    background: '#1a1a1a',
+    background: 'var(--border-base, #27272a)',
   },
   monitorSpacer: {
     flex: 1,

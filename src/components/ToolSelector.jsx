@@ -207,29 +207,29 @@ export default function ToolSelector({
         title={getItemTitle(item)}
         style={{
           ...dropdownStyles.item,
-          opacity: available ? 1 : 0.6,
-          background: isCurrent ? `${visual.color}12` : 'transparent',
+          opacity: available ? 1 : 0.55,
+          background: isCurrent ? `${visual.color}10` : 'transparent',
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.background = `${visual.color}18`;
+          e.currentTarget.style.background = `${visual.color}14`;
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.background = isCurrent ? `${visual.color}12` : 'transparent';
+          e.currentTarget.style.background = isCurrent ? `${visual.color}10` : 'transparent';
         }}
       >
         <span
           style={{
             ...dropdownStyles.itemIcon,
-            color: available ? visual.color : '#555',
-            borderColor: available ? `${visual.color}40` : '#262626',
-            background: isCurrent ? `${visual.color}14` : '#1a1a1a',
+            color: available ? visual.color : 'var(--text-tertiary, #71717a)',
+            borderColor: available ? `${visual.color}40` : 'var(--border-base, #27272a)',
+            background: isCurrent ? `${visual.color}12` : 'var(--bg-button, #1a1a1e)',
           }}
         >
           <ToolIcon id={item.id} size={12} color="currentColor" />
         </span>
         <span style={{
           ...dropdownStyles.itemLabel,
-          color: isCurrent ? '#eaeaea' : '#a0a0a0',
+          color: isCurrent ? 'var(--text-primary, #f0f0f2)' : 'var(--text-secondary, #a1a1aa)',
         }}>
           {visual.label}
         </span>
@@ -251,9 +251,9 @@ export default function ToolSelector({
         onClick={() => setOpen((v) => !v)}
         style={{
           ...triggerStyles.btn,
-          borderColor: open ? currentVisual.color : '#232323',
+          borderColor: open ? currentVisual.color : 'var(--border-button, #2a2a2e)',
           boxShadow: open ? `0 0 0 1px ${currentVisual.color}33, 0 4px 12px ${currentVisual.glow}` : 'none',
-          background: open ? '#161616' : '#121212',
+          background: open ? 'var(--bg-hover, #1c1c20)' : 'var(--bg-button, #1a1a1e)',
         }}
         title={`Current: ${currentVisual.label}\nClick to change tool`}
       >
@@ -267,10 +267,10 @@ export default function ToolSelector({
         >
           <ToolIcon id={currentToolId} size={12} color="currentColor" />
         </span>
-        <span style={{ ...triggerStyles.label, color: '#eaeaea' }}>
+        <span style={{ ...triggerStyles.label, color: 'var(--text-primary, #f0f0f2)' }}>
           {currentVisual.label}
         </span>
-        <ChevronIcon size={10} color={open ? '#aaa' : '#555'} />
+        <ChevronIcon size={10} color={open ? 'var(--text-secondary, #a1a1aa)' : 'var(--text-tertiary, #71717a)'} />
       </button>
 
       {/* Dropdown (portal to body to avoid split-pane clipping) */}
@@ -313,33 +313,33 @@ const triggerStyles = {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    padding: '4px 8px 4px 4px',
-    border: '1px solid #232323',
-    borderRadius: 6,
+    padding: '4px 10px 4px 5px',
+    border: '1px solid var(--border-button, #2a2a2e)',
+    borderRadius: 7,
     cursor: 'pointer',
-    transition: 'all 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
+    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
     outline: 'none',
-    fontFamily: 'system-ui, -apple-system',
+    fontFamily: 'var(--font-ui, system-ui)',
     flexShrink: 0,
     minWidth: 120,
-    background: '#121212',
+    background: 'var(--bg-button, #1a1a1e)',
   },
   iconBox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 5,
     border: '1px solid',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    transition: 'all 0.18s',
+    transition: 'all 0.2s',
     flexShrink: 0,
   },
   label: {
     fontSize: 12,
     fontWeight: 500,
     letterSpacing: '-0.01em',
-    transition: 'color 0.18s',
+    transition: 'color 0.2s',
     whiteSpace: 'nowrap',
   },
 };
@@ -348,48 +348,49 @@ const triggerStyles = {
 
 const dropdownStyles = {
   wrapper: {
-    minWidth: 220,
+    minWidth: 240,
     maxHeight: 420,
     overflowY: 'auto',
-    background: '#0f0f0f',
-    border: '1px solid #1e1e1e',
-    borderRadius: 8,
-    boxShadow: '0 12px 40px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.4)',
+    background: 'var(--bg-card, #18181b)',
+    border: '1px solid var(--border-mid, #2a2a2e)',
+    borderRadius: 10,
+    boxShadow: '0 16px 48px rgba(0,0,0,0.5), 0 4px 16px rgba(0,0,0,0.3)',
     padding: '6px 0',
-    animation: 'fade-in 0.12s ease',
+    animation: 'fade-in 0.15s ease',
   },
   groupHeader: {
     fontSize: 10,
     fontWeight: 700,
-    color: '#444',
+    color: 'var(--text-tertiary, #71717a)',
     letterSpacing: '0.06em',
     textTransform: 'uppercase',
-    padding: '6px 12px 2px',
-    fontFamily: 'system-ui',
+    padding: '8px 14px 3px',
+    fontFamily: 'var(--font-ui, system-ui)',
   },
   groupLine: {
     height: 1,
-    background: '#1a1a1a',
-    margin: '4px 12px 2px',
+    background: 'var(--border-subtle, #18181b)',
+    margin: '4px 14px 2px',
   },
   item: {
     display: 'flex',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
     width: '100%',
-    padding: '6px 12px',
+    padding: '7px 14px',
     border: 'none',
     background: 'transparent',
     cursor: 'pointer',
-    transition: 'background 0.12s',
+    transition: 'background 0.15s',
     outline: 'none',
-    fontFamily: 'system-ui',
+    fontFamily: 'var(--font-ui, system-ui)',
     textAlign: 'left',
+    borderRadius: 0,
   },
   itemIcon: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 5,
     border: '1px solid',
     display: 'flex',
     alignItems: 'center',
@@ -407,9 +408,9 @@ const dropdownStyles = {
   currentBadge: {
     fontSize: 9,
     fontWeight: 600,
-    color: '#555',
+    color: 'var(--text-tertiary, #71717a)',
     letterSpacing: '0.04em',
-    fontFamily: '"JetBrains Mono", monospace',
+    fontFamily: 'var(--font-mono, monospace)',
   },
   warnDot: {
     width: 6,
@@ -422,26 +423,26 @@ const dropdownStyles = {
   addBtn: {
     display: 'flex',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
     width: '100%',
-    padding: '7px 12px',
+    padding: '8px 14px',
     margin: '4px 0 0',
     border: 'none',
-    borderTop: '1px solid #1a1a1a',
+    borderTop: '1px solid var(--border-subtle, #18181b)',
     background: 'transparent',
-    color: '#555',
+    color: 'var(--text-tertiary, #71717a)',
     cursor: 'pointer',
     fontSize: 11,
-    fontFamily: 'system-ui',
-    transition: 'all 0.12s',
+    fontFamily: 'var(--font-ui, system-ui)',
+    transition: 'all 0.15s',
     outline: 'none',
     textAlign: 'left',
   },
   addIcon: {
-    width: 16,
-    height: 16,
+    width: 18,
+    height: 18,
     borderRadius: 4,
-    border: '1px dashed #333',
+    border: '1px dashed var(--border-base, #27272a)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
