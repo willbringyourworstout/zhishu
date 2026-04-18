@@ -1,176 +1,98 @@
-# electron/ - Main Process
+# electron/ — Main Process
 
-> [← 返回根目录](../CLAUDE.md)
+Electron 主进程模块。负责 PTY 管理、进程监控、Git/FS 操作、Tray 驻留、配置持久化、Keychain 集成、Todo AI、终端缓冲持久化、系统资源监控。
 
-Electron main process modules. All pty, filesystem, git, process monitoring, system notifications, and tray resident logic live here.
+**技术栈**: Node.js (Electron 31) / node-pty / child_process
+**测试**: `node --test electron/*.test.js`（7 个测试文件）
 
----
-
-## File List
-
-| File | Lines | Responsibility |
-|------|-------|----------------|
-| `main.js` | ~190 | App lifecycle, BrowserWindow creation, module assembly |
-| `preload.js` | ~103 | contextBridge whitelist API surface |
-| `pty.js` | ~315 | PTY lifecycle, shared state maps, process cleanup, shell helpers |
-| `monitor.js` | ~230 | Process monitor FSM (1.5s BFS tick) |
-| `git.js` | ~150 | Git IPC handlers |
-| `fs-handlers.js` | ~310 | File system IPC handlers |
-| `tray.js` | ~85 | macOS menu bar resident |
-| `tools.js` | ~160 | Tool catalog + installation IPC handlers |
-| `config.js` | ~100 | Config persistence + Keychain migration |
-| `gitStatus.js` | ~88 | `git status --porcelain=v1 -b` output parser (pure functions, no I/O) |
-| `gitStatus.test.js` | ~54 | gitStatus unit tests |
-| `monitor.test.js` | - | monitor FSM unit tests (mocked pty state) |
-| `tools.test.js` | - | TOOL_CATALOG / PROVIDER_CATALOG validation tests |
-| `config.test.js` | - | config persistence + Keychain migration tests |
-| `keychain.js` | ~248 | macOS Keychain integration for secure API key storage |
-| `keychain.test.js` | - | keychain unit tests |
-| `pathValidator.js` | ~95 | File path validation for IPC security |
-| `pathValidator.test.js` | - | pathValidator unit tests |
-| `hookWatcher.js` | ~153 | Claude Code Stop hook: fs.watch sentinel → instant "response complete" |
-| `todoAI.js` | ~395 | AI TODO assistant: streaming chat via Anthropic-format API |
-| `fsImportExternal.test.js` | - | fs-handlers import external path tests |
-
-## Module Dependency Graph
+## 架构
 
 ```
-main.js
-  +-- config.js           (loadConfigAsync, loadConfig, saveConfigAsync)
-  +-- pty.js              (loadPtyModule, initPtyIPC, ptyProcesses, killPtyTree, cleanupAll)
-  |     +-- keychain.js   (migrateKeysFromConfig, extractAndStoreKeys, restoreKeysIntoConfig)
-  +-- monitor.js          (monitorTick)
-  |     +-- pty.js        (reads shared maps + broadcastStatus, broadcastResponseComplete)
-  +-- git.js              (initGitIPC)
-  |     +-- pty.js        (interruptAndRunInShell)
-  |     +-- gitStatus.js  (parseGitStatus)
-  +-- fs-handlers.js      (initFsIPC)
-  |     +-- pathValidator.js (validatePath)
-  +-- tray.js             (createTray, refreshTrayMenu, destroyTray)
-  |     +-- pty.js        (reads sessionStatus)
-  +-- tools.js            (initToolsIPC)
-  |     +-- pty.js        (interruptAndRunInShell)
-  +-- hookWatcher.js      (initHookWatcher, ensureClaudeHook)
-  |     +-- pty.js        (reads sessionLaunchedTool for sessionId mapping)
-  +-- todoAI.js           (initTodoIPC)
-        +-- keychain.js   (getKey for API key retrieval)
-        +-- tools.js      (PROVIDER_CATALOG for provider metadata)
+main.js (入口，模块组装)
+  ├── config.js ← keychain.js
+  ├── pty.js (PTY 生命周期 + 6 个共享状态 Map)
+  ├── monitor.js ← pty.js + tools.js + resourceMonitor.js
+  ├── git.js ← pty.js + gitStatus.js + pathValidator.js
+  ├── fs-handlers.js (facade) ← fs-handlers-{browse,operations,image}.js
+  │                              └── pathValidator.js
+  ├── tools.js ← pty.js
+  ├── tray.js ← pty.js
+  ├── hookWatcher.js
+  ├── todoAI.js ← keychain.js + tools.js
+  └── terminalBuffer.js
+preload.js (contextBridge 白名单)
 ```
 
-**Shared state ownership**: `pty.js` owns all core Maps (`ptyProcesses`, `ptyMeta`, `sessionStatus`, `sessionLaunchedTool`, `notifyTimers`, `sessionNames`). Other modules import these references and read/mutate through them. Primitive state (`notificationsEnabled`) is exported via getter/setter functions to avoid stale value copies.
+## 共享状态（pty.js 导出的 6 个 Map）
 
-## Core Data Structures
+| Map | 类型 | 用途 |
+|-----|------|------|
+| `ptyProcesses` | pid → pty | 活跃 PTY 进程 |
+| `ptyMeta` | sessionId → {cols,rows,shell} | 终端元数据 |
+| `sessionStatus` | sessionId → FSM 状态 | 进程监控状态机 |
+| `sessionLaunchedTool` | sessionId → toolName | 区分"声明意图"vs `ps` 检测 |
+| `notifyTimers` | sessionId → Timer | 完成通知 debounce |
+| `sessionNames` | sessionId → name | 会话自定义名称 |
 
-### ptyProcesses: `Map<sessionId, ptyProcess>`
-All active node-pty processes. Key is UUID string.
+## IPC 注册模式
 
-### ptyMeta: `Map<sessionId, { lastOutputAt: number, hasUserInput: boolean }>`
-- `lastOutputAt`: Most recent stdout timestamp, used to detect busy/idle transitions
-- `hasUserInput`: Whether user has pressed Enter (distinguishes "never instructed" vs "finished instruction")
+每个模块导出 `init*IPC()` 函数，在 `main.js` 的 `app.whenReady()` 中调用。`preload.js` 通过 `contextBridge.exposeInMainWorld` 镜像所有通道。
 
-### sessionStatus: `Map<sessionId, { tool, label, phase, startedAt, runningStartedAt, lastRanTool, lastDuration }>`
-Four-state FSM output. `phase in { not_started, idle_no_instruction, running, awaiting_review }`
+| 模块 | IPC 通道 |
+|------|---------|
+| main.js (initSystemIPC) | `system:homeDir`, `window:*`, `config:load/save`, `dialog:selectDir` |
+| pty.js | `pty:create/write/resize/kill/insertText/launch`, `session:*`, `notifications:*` |
+| monitor.js (push) | `session:status:{id}`, `session:responseComplete`, `system:resources` |
+| git.js | `git:status/branches/log/fileDiff/scanRepos/runInSession` |
+| fs-handlers-browse | `fs:listDir/exists/stat/reveal/openFile/readFilePreview` |
+| fs-handlers-operations | `fs:writeFile/trash/rename/copy/move/zip/newFile/newFolder/importExternal` |
+| fs-handlers-image | `fs:convertHeic/normalizeImage` |
+| tools.js | `tools:catalog/checkAll/installInSession` |
+| todoAI.js | `todo:chat:start/abort`, `todo:providers:available` + push streams |
+| terminalBuffer.js | `buffer:save/load` |
 
-### sessionLaunchedTool: `Map<sessionId, { id, label }>`
-Declared intent: distinguishes GLM/MiniMax/Kimi (all spawn the same `claude` binary). `monitorTick` prefers this value.
+## 关键约定
 
-### notifyTimers: `Map<sessionId, setTimeout handle>`
-Debounced notification timers. running -> awaiting_review starts one; fires only if still idle after 3.5s.
+- **安全**: 命令执行一律 `execFile`（参数数组），禁止 `exec`/`shell=True`（CWE-78）
+- **路径安全**: `pathValidator.js` 校验所有文件路径，禁止路径遍历和敏感目录访问
+- **配置持久化**: `~/.ai-terminal-manager.json`（chmod 0o600，原子写 tmp+rename）
+- **密钥存储**: macOS Keychain（service: `ai-terminal-manager`），config 文件中脱敏为 `***`
+- **cleanupSession vs resetToolState**: AI 退出用 `resetToolState`（保留 pty），pty 退出用 `cleanupSession`（清除一切）
+- **进程监控**: 1.5s BFS tick，`ps -axo pid=,ppid=,time=,rss=,command=` 单次快照 + 内存 BFS
+- **通知**: 静默 > 3s → debounce 3.5s → 发通知；Stop hook 精确通知（sentinel 文件 + fs.watch）
 
-## IPC Handler Classification
+## 文件索引
 
-### PTY Lifecycle (registered in `pty.js`)
-| Channel | Direction | Description |
-|---------|-----------|-------------|
-| `pty:create` | invoke | Create pty (reuse if exists, React 18 strict mode compatible) |
-| `pty:write` | send | Write data (also detects Enter -> hasUserInput) |
-| `pty:resize` | send | Resize terminal |
-| `pty:kill` | send | killPtyTree (recursive SIGKILL) |
-| `pty:launch` | send | Launch AI tool in pty (declares toolId) |
-| `pty:insertText` | send | Insert text (drag-drop file paths) |
-| `pty:data:{id}` | send (->renderer) | Terminal output |
-| `pty:exit:{id}` | send (->renderer) | Process exit |
+| 文件 | 行数 | 职责 |
+|------|------|------|
+| `main.js` | 336 | 应用入口：窗口创建、模块组装、系统 IPC |
+| `preload.js` | 146 | IPC 安全桥（contextBridge 白名单） |
+| `pty.js` | 357 | PTY 生命周期、共享状态、进程清理、session IPC |
+| `monitor.js` | 329 | 进程监控 FSM、系统资源广播、通知 |
+| `fs-handlers.js` | 31 | FS facade，委托 browse/operations/image 子模块 |
+| `fs-handlers-browse.js` | 139 | 目录浏览/文件预览（6 IPC 通道） |
+| `fs-handlers-operations.js` | 316 | 文件增删改/zip/导入（9 IPC 通道） |
+| `fs-handlers-image.js` | 71 | HEIC/PNG 图片转换（macOS sips） |
+| `git.js` | 163 | Git IPC handlers |
+| `gitStatus.js` | 87 | `git status --porcelain` 解析器（纯函数） |
+| `tray.js` | 105 | macOS 菜单栏驻留 |
+| `config.js` | 132 | 配置持久化 + Keychain 迁移 |
+| `keychain.js` | 248 | macOS Keychain 集成 |
+| `pathValidator.js` | 116 | 文件路径安全校验 |
+| `tools.js` | 184 | TOOL_CATALOG + PROVIDER_CATALOG + 安装 IPC |
+| `hookWatcher.js` | 153 | Claude Code Stop hook 精确通知 |
+| `todoAI.js` | 446 | AI TODO 助手流式 API（tool-use 循环） |
+| `resourceMonitor.js` | 194 | CPU/MEM/Battery 采集（monitor 每 tick 调用） |
+| `terminalBuffer.js` | 119 | 终端缓冲持久化（500KB/7天自动清理） |
 
-### Process Monitoring (broadcast from `monitor.js` via `pty.js` helpers)
-| Channel | Direction | Description |
-|---------|-----------|-------------|
-| `session:status:{id}` | send (->renderer) | State change broadcast |
-| `session:responseComplete` | send (->renderer) | AI finished responding (after debounce) |
-| `session:updateNames` | send | Sync friendly session names |
-| `session:cleanup` | send | Clean up session state |
+## 测试覆盖
 
-### Git (registered in `git.js`)
-| Channel | Direction | Description |
-|---------|-----------|-------------|
-| `git:status` | invoke | `git status --porcelain=v1 -b` |
-| `git:branches` | invoke | `git branch -a` |
-| `git:log` | invoke | `git log` (NUL-separated custom format) |
-| `git:fileDiff` | invoke | `git diff -- <path>` |
-| `git:scanRepos` | invoke | Recursively scan all git repos (depth 4) |
-| `git:runInSession` | send | Execute git command in pty |
-
-### File System (registered in `fs-handlers.js`)
-| Channel | Direction | Description |
-|---------|-----------|-------------|
-| `fs:listDir` | invoke | Lazy directory listing |
-| `fs:readFilePreview` | invoke | First 10KB file preview |
-| `fs:exists` | invoke | File existence check |
-| `fs:writeFile` | invoke | Write file (template system) |
-| `fs:trash` | invoke | Move to Trash |
-| `fs:rename` | invoke | Rename (path traversal prevention) |
-| `fs:copy` | invoke | Recursive copy |
-| `fs:move` | invoke | Move (cross-filesystem fallback copy+delete) |
-| `fs:zip` | invoke | System zip command |
-| `fs:newFile` / `fs:newFolder` | invoke | Create empty file/directory |
-| `fs:convertHeic` | invoke | HEIC -> PNG (sips) |
-| `fs:normalizeImage` | invoke | Generic image -> PNG |
-| `fs:stat` | invoke | File metadata |
-| `fs:reveal` | invoke | Reveal in Finder |
-| `fs:openFile` | invoke | Open with default app |
-
-### Config / Tools / Window (registered in `main.js` and `tools.js`)
-| Channel | Direction | Description |
-|---------|-----------|-------------|
-| `config:load` / `config:save` | invoke | Persist to `~/.ai-terminal-manager.json` |
-| `tools:catalog` | invoke | Return TOOL_CATALOG + PROVIDER_CATALOG |
-| `tools:checkAll` | invoke | Check all tools installation status in parallel |
-| `tools:installInSession` | send | Install/upgrade tool in pty |
-| `window:toggleAlwaysOnTop` | invoke | Toggle always-on-top |
-| `dialog:selectDir` | invoke | Directory selection dialog |
-
-### Todo AI (registered in `todoAI.js`)
-| Channel | Direction | Description |
-|---------|-----------|-------------|
-| `todo:chat:start` | invoke | Start streaming AI chat (Anthropic-format) |
-| `todo:chat:abort` | send | Abort in-flight request |
-| `todo:providers:available` | invoke | List providers with valid API keys |
-| `todo:stream:chunk` | send (->renderer) | Text delta during generation |
-| `todo:stream:done` | send (->renderer) | Stream complete (stopReason + toolCalls) |
-| `todo:stream:error` | send (->renderer) | Error during generation |
-
-## Key Constants
-
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `IDLE_SILENCE_MS` | 3000 | Output silence threshold (exceed = AI stopped outputting) |
-| `NOTIFY_DEBOUNCE_MS` | 3500 | Notification debounce (confirm still idle before triggering) |
-| `CONFIG_PATH` | `~/.ai-terminal-manager.json` | User config persistence path |
-| Monitor interval | 1500ms | Process scan frequency |
-| Scan max depth | 4 | Git repo recursive scan depth |
-| `IGNORED_DIRS` | node_modules, .git, dist, build... | File tree/scan ignored directories |
-
-## Window Bounds Persistence (main.js)
-
-`main.js` saves/restores window position and size via `saveWindowBounds()` / `createWindow()`:
-- Bounds are validated against `screen.getAllDisplays()` to prevent off-screen windows after external monitor disconnect
-- Default size: 1400×900; minimum: 900×600
-
-## Adding a New IPC Handler Checklist
-1. Register `ipcMain.handle` or `ipcMain.on` in the appropriate module's `initXxxIPC()` function (or `initSystemIPC()` in main.js for system/window/config handlers)
-2. Expose in `preload.js` within `contextBridge.exposeInMainWorld`
-3. If involving Renderer calls, use via `window.electronAPI.xxx` in components
-4. Security review: parameter validation, path traversal prevention, no shell injection
-
----
-
-*Updated: 2026-04-17 -- v1.2.x hookWatcher + todoAI + new IPC channels*
+| 测试文件 | 覆盖模块 |
+|---------|---------|
+| `gitStatus.test.js` | gitStatus.js 解析器 |
+| `keychain.test.js` | keychain.js 密钥管理 |
+| `pathValidator.test.js` | pathValidator.js 路径校验 |
+| `tools.test.js` | tools.js 目录结构完整性 |
+| `config.test.js` | config.js 迁移/缓存/错误处理 |
+| `monitor.test.js` | monitor.js FSM/BFS/正则/状态转换 |
+| `fsImportExternal.test.js` | fs-handlers-operations.js 导入路径解析 |

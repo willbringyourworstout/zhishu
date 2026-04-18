@@ -1,188 +1,129 @@
-# src/ - Renderer Process
+# src/ — Renderer Process
 
-> [← 返回根目录](../CLAUDE.md)
+Electron 渲染进程。React 18 UI + Zustand 全局状态 + xterm.js 终端。
 
-Electron 渲染进程模块。React 18 SPA，Zustand 状态管理，xterm.js WebGL 终端渲染。
+**技术栈**: React 18 / Zustand / xterm.js (WebGL) / CSS-in-JS
+**入口**: `index.js` → `App.jsx`
 
----
+## 架构
 
-## 文件清单
-
-| 文件 | 职责 |
-|------|------|
-| `index.js` | 入口：字体导入 (Inter + JetBrains Mono)、全局 CSS 变量、drag-drop guard、ReactDOM 挂载 |
-| `App.jsx` | 根组件：全局快捷键 (Cmd+T/W/1-9)、IPC 订阅、Toast/Modal 挂载、终端堆叠/分屏布局 |
-| `store/sessions.js` | Zustand store：项目/会话 CRUD、Provider 配置、工具状态、Toast、设置、分屏状态 |
-| `store/sessionState.js` | 纯函数抽取（可独立测试）：session 查找、项目操作、主题解析 |
-| `components/TerminalView.jsx` | xterm.js 终端 + 工具栏 + 状态条 + 文件拖拽 + 搜索栏 + Prompt 模板按钮 |
-| `components/SplitContainer.jsx` | 分屏容器：左右/上下分割两个会话，ratio 可拖拽调整 |
-| `components/Sidebar.jsx` | 项目树 + 会话列表 + 统计 + 添加项目/模板菜单 |
-| `components/GitPanel.jsx` | Git 面板（当前仓库模式 + 多仓库扫描模式） |
-| `components/FileTreePanel.jsx` | 文件浏览器（懒加载、git 着色、右键菜单、拖拽到终端） |
-| `components/SettingsModal.jsx` | 设置窗口（Provider 配置、工具安装状态、主题、自动恢复） |
-| `components/ContextMenu.jsx` | 通用右键菜单（Portal 渲染，避免 transform 包含块问题） |
-| `components/PromptDialog.jsx` | 自定义 prompt 对话框（Promise-based，替代被 Electron 阻止的 window.prompt） |
-| `components/PromptTemplate.jsx` | Prompt 模板选择/管理面板（内置模板 + 用户自定义） |
-| `components/ToastStack.jsx` | 响应完成 toast 通知（右侧浮层） |
-| `components/ToolIcons.jsx` | 手绘 SVG 图标集（每个工具/Provider 专属品牌色图标） |
-| `components/ErrorBoundary.jsx` | 渲染错误边界 |
-| `components/BroadcastBar.jsx` | 多终端广播输入栏（broadcastMode 激活时底部显示，文字发送到所有 pty） |
-| `components/CommandPalette.jsx` | Cmd+P 快速启动面板（会话切换 + 操作列表） |
-| `components/FilePreviewPanel.jsx` | 文件预览面板（图片/Markdown/纯文本/二进制回退/大文件回退） |
-| `components/TodoPanel.jsx` | TODO 管理面板（优先级、截止日期、分组、筛选） |
-| `components/TodoAIChat.jsx` | AI TODO 助手聊天（多轮对话，tool_use 循环，流式输出） |
-| `constants/toolVisuals.js` | 工具/Provider 视觉元数据单一真源（品牌色、标签、glow、排序） |
-| `utils/sound.js` | Web Audio API 合成双音提示音（A5→E6，无音频文件依赖） |
-
-## Zustand Store 结构 (`sessions.js`)
-
-### 状态字段
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `projects` | `Array<{ id, name, path, sessions }>` | 项目列表，每个项目含会话数组 |
-| `activeSessionId` | `string \| null` | 当前激活的会话 ID |
-| `sessionStatus` | `Object<sessionId, status>` | 实时进程状态（从 Main 进程 IPC 推送） |
-| `toolCatalog` | `{ tools, providers }` | 工具目录（从 Main 进程获取） |
-| `toolStatus` | `Object<toolId, { installed, version }>` | 工具安装状态 |
-| `providerConfigs` | `Object<providerId, config>` | 用户 Provider 配置覆盖 |
-| `yoloMode` | `boolean` | 全局 YOLO 模式开关 |
-| `notificationsEnabled` | `boolean` | 桌面通知开关 |
-| `autoRestoreSessions` | `boolean` | 自动恢复上次会话 |
-| `alwaysOnTop` | `boolean` | 窗口置顶 |
-| `theme` | `'dark' \| 'light'` | 当前主题（light 尚未完整实现） |
-| `sidebarWidth` | `number` | 侧边栏宽度（180-420px 可拖拽调整） |
-| `fileTreeOpen` / `gitPanelOpen` | `boolean` | 右侧面板互斥开关 |
-| `settingsOpen` | `boolean` | 设置模态框开关 |
-| `toasts` | `Array` | 当前活跃的 toast 通知 |
-| `promptDialog` | `Object \| null` | 当前活跃的 prompt 对话框 |
-| `splitPane` | `{ sessionId, direction, ratio } \| null` | 分屏状态：主会话 ID + 方向 + 比例 |
-| `promptTemplates` | `Array<{ id, title, content, builtIn }>` | Prompt 模板列表 |
-| `todos` | `Array<{ id, text, done, priority, createdAt, doneAt, dueDate }>` | TODO 项列表（含优先级、截止日期） |
-| `broadcastMode` | `boolean` | 多终端广播模式（输入同时发送所有 pty） |
-| `commandPaletteOpen` | `boolean` | Cmd+P 命令面板开关 |
-| `filePreviewPath` | `string \| null` | 当前预览文件路径 |
-
-### 关键方法
-| 方法 | 说明 |
-|------|------|
-| `init()` | 启动引导：加载配置 + 工具目录 + 探测工具安装 |
-| `persist()` | 持久化到 `~/.ai-terminal-manager.json` |
-| `updateSessionStatus(id, status)` | 接收 Main 进程状态推送，同步 lastTool |
-| `createProjectFromTemplate(id, path, name)` | 从模板创建项目（写入 memory 文件） |
-| `syncSessionNamesToMain()` | 推送友好名到 Main 进程（通知用） |
-| `showPrompt({ title, defaultValue })` | Promise-based 自定义 prompt |
-| `getEffectiveProvider(id)` | 合并用户配置 + 目录默认值 |
-| `splitSession(sessionId, direction)` | 开启分屏：当前会话为主，项目内下一个会话为副 |
-| `closeSplit()` | 关闭分屏 |
-| `setSplitRatio(ratio)` | 调整分屏比例 |
-| `addPromptTemplate(title, content)` | 添加自定义 prompt 模板 |
-| `addTodo(text, priority?, dueDate?)` | 添加 TODO 项 |
-| `updateTodo(id, updates)` | 更新 TODO 项（优先级、截止日期等） |
-| `deleteTodo(id)` | 删除 TODO 项 |
-| `toggleTodo(id)` | 切换 TODO 完成状态 |
-| `clearDoneTodos()` | 清除已完成的 TODO 项 |
-| `toggleBroadcastMode()` | 切换多终端广播模式 |
-| `disableBroadcastMode()` | 关闭广播模式 |
-
-### 项目模板 (`PROJECT_TEMPLATES`)
-| ID | 名称 | 会话 | Memory 文件 |
-|----|------|------|-------------|
-| `blank` | 空项目 | 1 | 无 |
-| `single-claude` | Claude 单会话 | 1 | CLAUDE.md |
-| `fullstack` | 全栈开发 | 2 (Frontend/Backend) | CLAUDE.md + AGENTS.md |
-| `multi-ai` | 多 AI 对比 | 3 (Claude/Gemini/Codex) | CLAUDE.md + GEMINI.md + AGENTS.md + QWEN.md |
-
-## 组件数据流
-
-```mermaid
-graph TD
-    App["App.jsx<br/>全局快捷键 + IPC 订阅"]
-    App --> Sidebar["Sidebar.jsx<br/>项目/会话列表"]
-    App --> TV["TerminalView.jsx<br/>xterm.js 终端"]
-    App --> TS["ToastStack.jsx"]
-    App --> SM["SettingsModal.jsx"]
-    App --> SC["SplitContainer.jsx<br/>分屏布局"]
-    App --> BB["BroadcastBar.jsx<br/>多终端广播"]
-    App --> CP["CommandPalette.jsx<br/>Cmd+P 快速启动"]
-    App --> TP["TodoPanel.jsx<br/>TODO 管理"]
-    TV --> FTP["FileTreePanel.jsx"]
-    TV --> FPP["FilePreviewPanel.jsx<br/>文件预览"]
-    TV --> GP["GitPanel.jsx"]
-    TV --> PD["PromptDialog.jsx"]
-    TV --> CM["ContextMenu.jsx"]
-    TV --> PT["PromptTemplate.jsx"]
-    TP --> TAC["TodoAIChat.jsx<br/>AI TODO 助手"]
-
-    ZS["useSessionStore<br/>Zustand"] -.->|所有组件消费| Sidebar
-    ZS -.-> TV
-    ZS -.-> SM
-    ZS -.-> FTP
-    ZS -.-> GP
-    ZS -.-> SC
-    ZS -.-> PT
+```
+App.jsx (根组件：快捷键 + IPC 订阅 + 布局)
+  ├── Sidebar.jsx
+  │     └── sidebar/ProjectSection.jsx → sidebar/SessionRow.jsx
+  ├── TerminalView.jsx (xterm.js + 工具栏 + 监控条)
+  │     ├── ToolSelector.jsx (下拉选择器)
+  │     └── ResourceBar.jsx (CPU/MEM/BAT)
+  ├── SplitContainer.jsx (分屏容器)
+  ├── FileTreePanel.jsx (文件浏览器)
+  ├── FilePreviewPanel.jsx (文件预览)
+  ├── GitPanel.jsx (Git 管理)
+  ├── TodoPanel.jsx → TodoAIChat.jsx (TODO + AI 助手)
+  ├── ToastStack.jsx (通知)
+  ├── SettingsModal.jsx → settings/* (设置)
+  ├── CommandPalette.jsx (Cmd+P)
+  ├── PromptDialog.jsx (Promise-based prompt)
+  └── ContextMenu.jsx (通用右键菜单)
 ```
 
-## 终端堆叠/分屏架构 (App.jsx)
+## Zustand Store (`store/sessions.js`)
 
-### 非分屏模式
-所有会话的 TerminalView **同时挂载**，通过 `visibility: hidden/visible` + `z-index` 切换：
-- 不可用 `display: none`（会破坏 xterm FitAddon 的尺寸计算）
-- 所有 pty 进程保持活跃，后台会话继续运行 AI 工具
+唯一状态源。纯函数抽取到 `store/sessionState.js`。
 
-### 分屏模式 (SplitContainer)
-- `primaryId`: 左侧/顶部会话（当前激活会话）
-- `secondaryId`: 右侧/底部会话（同一项目内下一个会话）
-- `direction`: `horizontal` (左右) 或 `vertical` (上下)
-- `ratio`: 0.2 ~ 0.8，通过 divider 拖拽调整
-- 分屏时 App.jsx 渲染 `SplitContainer` 替代单个 `TerminalView`
+**核心状态**: projects, sessions, activeSessionId, sessionStatus, toolCatalog, toolStatus, providerConfigs, customProviders, groups, splitPane, todos, systemResources, theme, panels
 
-## 工具/Provider 视觉定义 (`constants/toolVisuals.js`)
+**关键 action**:
+- 项目/会话 CRUD: `addProject`, `addSession`, `removeSession`, `renameSession`, `reorderProjects`, `reorderSessions`
+- Provider: `updateProviderConfig`, `addCustomProvider`, `updateCustomProvider`, `removeCustomProvider`, `getEffectiveProvider`
+- 分组: `createGroup`, `removeGroup`, `renameGroup`, `moveProjectToGroup`
+- 面板: `toggleFileTree`, `toggleGitPanel`, `toggleTodoPanel`, `setPanelWidth`, `commitPanelWidth`
+- 通知: `addToast`（支持 mergeKey 批量合并）
+- 弹窗: `showPrompt`（Promise-based, 替代 window.prompt）
 
-单一真源文件，导出 `TOOL_VISUALS` / `TOOL_COLORS` / `TOOL_LABELS` / `TOOL_ORDER` / `PROVIDER_ORDER` / `PHASE_STANDBY` / `PHASE_REVIEW`。所有组件从此文件导入，不再各自定义。
+## 组件通信模式
 
-| 工具 | 品牌色 | glow 色 |
-|------|--------|---------|
-| Claude | `#d97706` | amber |
-| Codex | `#16a34a` | green |
-| Gemini | `#3b82f6` | blue |
-| Qwen | `#06b6d4` | cyan |
-| OpenCode | `#f97316` | orange |
-| GLM | `#a855f7` | purple |
-| MiniMax | `#ec4899` | pink |
-| Kimi | `#0ea5e9` | sky blue |
-| QwenCP | `#0d9488` | teal |
+1. **Zustand Store** — 主要模式，几乎所有状态通过 store 流转
+2. **Callback Props** — 父→子事件传递（App→TerminalView, Sidebar→ProjectSection）
+3. **IPC** — 渲染进程 ↔ 主进程（`window.electronAPI.*`）
+4. **Portal** — ContextMenu, ToolSelector, CommandPalette 渲染到 `document.body` 防裁剪
+5. **HTML5 Drag** — 内部 MIME（`application/x-prism-*`）+ 外部拖放（`utils/drag.js` 检测）
 
-## CSS 主题变量 (index.js)
+## 进程边界
 
-通过 `data-theme` 属性切换：
-- `--bg-root`, `--bg-sidebar`, `--bg-main`, `--bg-toolbar`, `--bg-card`
-- `--border-base`
-- `--text-primary`, `--text-secondary`, `--text-tertiary`, `--text-mute`
-- `--font-ui` (Inter), `--font-mono` (JetBrains Mono)
+- `contextIsolation: true` + `nodeIntegration: false`
+- 所有 Node.js 操作通过 `window.electronAPI` (preload.js) IPC 调用
+- Portal 渲染: ContextMenu, ToolSelector, CommandPalette
 
-## 依赖
+## 关键约定
 
-### 运行时
-- `react` (^18.2.0), `react-dom` (^18.2.0)
-- `zustand` (^4.5.0) — 状态管理
-- `uuid` (^9.0.0) — 会话/项目 ID 生成
-- `react-markdown` — Markdown 渲染（FilePreviewPanel + TodoAIChat）
-- `@xterm/xterm` (^5.5.0) — 终端模拟器
-- `@xterm/addon-fit` — 自适应尺寸
-- `@xterm/addon-webgl` — GPU 渲染
-- `@xterm/addon-search` — 终端内搜索
-- `@xterm/addon-unicode11` — 宽字符支持
-- `@xterm/addon-web-links` — 可点击 URL
-- `@fontsource/inter`, `@fontsource/jetbrains-mono` — 打包字体
+- **CSS 变量**: 深色/浅色主题通过 `:root` / `[data-theme="dark"]` CSS 变量切换
+- **面板缩放**: `usePanelResizer` hook 处理 FileTree/Git/Todo/Preview 面板宽度
+- **拖拽排序**: 项目和会话支持六点抓手 + 琥珀色 drop indicator
+- **终端恢复**: 启动时读取 `lastTool` → 延迟 1.2s 注入 `--continue` 命令
+- **资源监控**: 主进程 1.5s push `systemResources` → ResourceBar 消费
 
-### 开发时
-- `react-scripts` (5.0.1) — Create React App
+## 文件索引
 
-## 已知限制 / TODO
-- Light 主题未完整实现（`resolveTheme` 强制返回 dark）
-- ImageAddon 因 xterm.js #4793 禁用
-- 仅 macOS 测试通过
+### 入口 & Store
 
----
+| 文件 | 行数 | 职责 |
+|------|------|------|
+| `index.js` | 240 | 字体导入、CSS 变量、全局样式、ReactDOM 挂载 |
+| `App.jsx` | 493 | 根组件：快捷键、IPC 订阅、布局编排 |
+| `store/sessions.js` | 1044 | Zustand store（唯一状态源） |
+| `store/sessionState.js` | 117 | 纯函数抽取（可独立测试） |
 
-*Updated: 2026-04-17 -- v1.2.x CommandPalette, FilePreview, TodoPanel, BroadcastBar, TodoAIChat, toolVisuals*
+### 核心组件
+
+| 文件 | 行数 | 职责 |
+|------|------|------|
+| `components/TerminalView.jsx` | 1305 | xterm 终端 + 工具栏 + 监控条 + 搜索 + 拖放 |
+| `components/GitPanel.jsx` | 1162 | Git 面板：status/diff/branch/stage/commit + 多仓库扫描 |
+| `components/TodoPanel.jsx` | 912 | TODO 管理：优先级/截止日期/过滤/拖拽 |
+| `components/FileTreePanel.jsx` | 814 | 文件浏览器：懒加载树 + git 着色 + 拖拽到终端 |
+| `components/FilePreviewPanel.jsx` | 745 | 文件预览：图片/MD/文本/二进制 |
+| `components/TodoAIChat.jsx` | 637 | AI TODO 助手：多轮对话 + tool_use |
+| `components/ToolSelector.jsx` | 453 | 工具/Provider 下拉选择器 |
+| `components/Sidebar.jsx` | 366 | 项目树 + 会话列表 + 统计 + 分组 |
+| `components/CommandPalette.jsx` | 360 | Cmd+P 快速启动 |
+| `components/ToolIcons.jsx` | 266 | 手绘 SVG 品牌/UI 图标集 |
+| `components/ResourceBar.jsx` | 169 | 系统资源监控条 |
+| `components/SettingsModal.jsx` | 221 | 5-tab 设置窗口 |
+| `components/ToastStack.jsx` | 219 | 完成通知 toast |
+| `components/PromptDialog.jsx` | 141 | Promise-based prompt 对话框 |
+| `components/ContextMenu.jsx` | 141 | 通用右键菜单 (Portal) |
+| `components/SplitContainer.jsx` | 134 | 分屏容器（ratio 0.2-0.8） |
+| `components/ErrorBoundary.jsx` | 114 | 渲染错误边界 |
+
+### Sidebar 子组件 (`components/sidebar/`)
+
+| 文件 | 行数 | 职责 |
+|------|------|------|
+| `sidebar/ProjectSection.jsx` | 246 | 项目卡片：折叠/拖拽/重命名/TODO 徽章 |
+| `sidebar/SessionRow.jsx` | 249 | 会话行：拖拽/阶段指示/内联重命名 |
+| `sidebar/styles.js` | 491 | 共享 CSS-in-JS 样式 |
+| `sidebar/icons.js` | 88 | 内联 SVG 图标 |
+| `sidebar/helpers.js` | 49 | `getPhaseIndicator()` + `fmtDuration` |
+| `sidebar/EditableLabel.jsx` | 44 | 双击内联编辑标签 |
+
+### Settings 子组件 (`components/settings/`)
+
+| 文件 | 行数 | 职责 |
+|------|------|------|
+| `settings/styles.js` | 470 | 共享 CSS-in-JS 样式 |
+| `settings/CustomProviderCard.jsx` | 172 | 自定义 Anthropic 端点配置 |
+| `settings/AgentConfigTab.jsx` | 115 | Agent 记忆文件管理 |
+| `settings/AppearanceTab.jsx` | 95 | 主题 + 自动恢复设置 |
+| `settings/ProviderCard.jsx` | 96 | 内置 Provider 配置 |
+| `settings/ToolRow.jsx` | 52 | 工具安装状态行 |
+| `settings/TabButton.jsx` | 21 | Tab 按钮 |
+| `settings/Field.jsx` | 14 | 通用表单字段包装 |
+
+### Constants & Utils
+
+| 文件 | 行数 | 职责 |
+|------|------|------|
+| `constants/toolVisuals.js` | 95 | 工具视觉元数据单一真源 |
+| `utils/format.js` | 25 | `formatDuration()` 时长格式化 |
+| `utils/drag.js` | 26 | 外部/内部拖放检测 |
+| `utils/sound.js` | 58 | Web Audio 提示音 |

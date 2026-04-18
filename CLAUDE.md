@@ -31,6 +31,7 @@ node --test electron/tools.test.js
 node --test electron/config.test.js
 node --test electron/keychain.test.js
 node --test electron/pathValidator.test.js
+node --test electron/fsImportExternal.test.js
 node --test src/store/sessionState.test.js
 ```
 
@@ -44,10 +45,14 @@ graph TB
         MW[BrowserWindow]
         PTY[node-pty<br/>进程管理]
         MON[Process Monitor<br/>1.5s BFS tick]
-        GIT[Git Wrapper<br/>execFile]
-        FS[FS Operations<br/>文件浏览/操作]
-        CFG[Config Persistence<br/>~/.ai-terminal-manager.json]
-        TRAY[Tray / Menu Bar<br/>驻留模式]
+        RES[Resource Monitor<br/>CPU/MEM/BAT]
+        BUF[Terminal Buffer<br/>持久化 500KB/7天]
+        GIT[Git Wrapper]
+        FS[FS Handlers<br/>browse/ops/image]
+        CFG[Config + Keychain]
+        TRAY[Tray / Menu Bar]
+        HOOK[Hook Watcher<br/>Stop hook 精确通知]
+        TODO[AI TODO 助手]
     end
 
     subgraph "IPC Bridge (contextIsolation)"
@@ -55,27 +60,37 @@ graph TB
     end
 
     subgraph "Renderer Process (React)"
-        ZS[Zustand Store<br/>全局状态]
-        SB[Sidebar<br/>项目/会话树]
-        TV[TerminalView<br/>xterm.js + WebGL]
-        GP[GitPanel<br/>双模式 Git 管理]
-        FTP[FileTreePanel<br/>文件浏览器]
-        SM[SettingsModal<br/>Provider 配置]
-        TS[ToastStack<br/>完成通知]
-        SC[SplitContainer<br/>分屏会话]
+        ZS[Zustand Store]
+        SB[Sidebar + 分组系统]
+        TV[TerminalView + ToolSelector + ResourceBar]
+        SC[SplitContainer]
+        GP[GitPanel]
+        FTP[FileTreePanel]
+        FPP[FilePreviewPanel]
+        SM[SettingsModal<br/>5-tab]
+        TP[TodoPanel + AI Chat]
+        CP[CommandPalette]
+        TS[ToastStack]
     end
 
     MW --> PRE
     PTY --> PRE
     MON --> PRE
+    RES --> MON
+    BUF --> PRE
     GIT --> PRE
     FS --> PRE
+    CFG --> PRE
+    HOOK --> PRE
+    TODO --> PRE
     PRE --> ZS
     ZS --> SB
     ZS --> TV
     ZS --> GP
     ZS --> FTP
+    ZS --> FPP
     ZS --> SM
+    ZS --> TP
     ZS --> TS
     ZS --> SC
 ```
@@ -84,9 +99,13 @@ graph TB
 
 | 模块 | 路径 | 职责 | 详情 |
 |------|------|------|------|
-| **主进程** | `electron/` | pty 管理、进程监控、Git/FS 操作、Tray | [electron/CLAUDE.md](electron/CLAUDE.md) |
+| **主进程** | `electron/` | pty 管理、进程监控、Git/FS 操作、Tray、资源监控 | [electron/CLAUDE.md](electron/CLAUDE.md) |
 | **渲染进程** | `src/` | React UI、Zustand 状态管理、xterm.js 终端 | [src/CLAUDE.md](src/CLAUDE.md) |
-| **CI/CD** | `.github/workflows/` | GitHub Actions：测试 + 原生模块重编译 + 桌面包包验证 | ci.yml |
+| **组件库** | `src/components/` | 所有 React 组件 | [src/components/CLAUDE.md](src/components/CLAUDE.md) |
+| **状态管理** | `src/store/` | Zustand store + 纯函数 | [src/store/CLAUDE.md](src/store/CLAUDE.md) |
+| **侧边栏** | `src/components/sidebar/` | 项目/会话子组件 | [src/components/sidebar/CLAUDE.md](src/components/sidebar/CLAUDE.md) |
+| **设置** | `src/components/settings/` | 设置子组件 | [src/components/settings/CLAUDE.md](src/components/settings/CLAUDE.md) |
+| **CI/CD** | `.github/workflows/` | GitHub Actions：测试 + 原生模块 + 桌面包包 | ci.yml |
 | **构建资产** | `build-assets/` | SVG 图标源文件 → .icns | BUILD.md |
 | **构建文档** | `BUILD.md` | 图标工作流、打包配置、Gatekeeper 绕过 | BUILD.md |
 
@@ -99,7 +118,7 @@ graph TB
 
 ### 安全
 - 命令执行一律用 `execFile`（参数数组），禁止 `exec` / `shell=True`（防 CWE-78）
-- 文件路径不允许用户控制完整路径（`newName` 必须是 basename，防 CWE-22）
+- 文件路径不允许用户控制完整路径（`pathValidator.js` 校验，防 CWE-22）
 - Provider API Key 存储在 `~/.ai-terminal-manager.json` 中脱敏为 `***`，真实密钥通过 macOS Keychain 存取
 
 ### 状态管理
@@ -122,7 +141,7 @@ not_started → idle_no_instruction → running → awaiting_review
 GLM / MiniMax / Kimi 复用 Claude 二进制 + 环境变量注入（`ANTHROPIC_BASE_URL`）：
 - `sessionLaunchedTool` Map 区分 "声明意图" vs `ps` 检测结果
 - POSIX 单引号转义：`'` → `'\''`
-- Provider 配置合并：用户覆盖 (`providerConfigs`) + 目录默认值 (`PROVIDER_CATALOG.defaults`)
+- Provider 配置合并：用户覆盖 (`providerConfigs`) + 目录默认值 (`PROVIDER_CATALOG.defaults`) + 自定义 (`customProviders`)
 
 ### 会话自动恢复
 - 启动时读取每个 session 的 `lastTool` → 延迟 1.2s 注入 `--continue` 命令
@@ -132,10 +151,11 @@ GLM / MiniMax / Kimi 复用 Claude 二进制 + 环境变量注入（`ANTHROPIC_B
 - React 18 strict mode 会 double-mount useEffect → `createPty` 必须 reuse 已有 pty
 - 删除 session 时 `killPtyTree` 递归 SIGKILL 整个进程树（不只是 SIGHUP shell）
 - `collectDescendants` 用同步 `execFileSync`（before-quit 不可 await）
+- AI 退出用 `resetToolState()`（保留 pty），pty 退出用 `cleanupSession()`（清除一切）
 
 ### 测试
 - 运行: `npm test`（Node.js 内置 test runner）
-- 测试文件: `electron/gitStatus.test.js`, `electron/monitor.test.js`, `electron/tools.test.js`, `electron/config.test.js`, `electron/keychain.test.js`, `electron/pathValidator.test.js`, `src/store/sessionState.test.js`
+- 8 个测试文件覆盖：gitStatus, keychain, pathValidator, tools, config, monitor, fsImportExternal, sessionState
 - 仅纯函数和可 mock 的模块可测（Main 进程的 pty/Git 依赖 Node.js 运行时，Renderer 依赖 DOM）
 
 ### 关键技术决策
@@ -145,66 +165,86 @@ GLM / MiniMax / Kimi 复用 Claude 二进制 + 环境变量注入（`ANTHROPIC_B
 4. **通知 debounce 3.5s**: 避免 tool-call 暂停（1-3s）误触发完成通知
 5. **ImageAddon 禁用**: xterm.js #4793 dispose race condition，等上游修复
 6. **WebGL addon 单独 dispose**: 时序敏感，不走 AddonManager 批量 dispose
-7. **窗口状态持久化**: `main.js` 保存/恢复窗口 bounds 和 maximized 状态，防止外接显示器断开后窗口飞出可视区域
-8. **分屏 (SplitContainer)**: 同一项目下可左右/上下分屏并排显示两个会话，ratio 可调，通过 Zustand `splitPane` 状态驱动
-9. **Stop Hook 精确通知 (hookWatcher)**: 通过 Claude Code Stop hook 写 sentinel 文件 + fs.watch 即时检测，比轮询 debounce 更精确
-10. **TODO AI 助手**: 内置 AI TODO 管理，通过 Anthropic-format 流式 API 多轮对话，支持 tool_use 循环
+7. **窗口状态持久化**: `main.js` 保存/恢复窗口 bounds 和 maximized 状态
+8. **分屏 (SplitContainer)**: 同一项目下可左右/上下分屏，ratio 0.2-0.8 可调
+9. **Stop Hook 精确通知 (hookWatcher)**: sentinel 文件 + fs.watch 即时检测
+10. **TODO AI 助手 (todoAI)**: Anthropic-format 流式 API 多轮对话 + tool_use 循环
+11. **终端缓冲持久化 (terminalBuffer)**: SerializeAddon → `~/.ai-terminal-manager/buffers/`，500KB/7天
+12. **系统资源监控 (resourceMonitor)**: CPU delta + RSS + heap + battery，piggyback on monitor tick
+13. **fs-handlers 拆分**: browse（只读）/ operations（增删改）/ image（转换）三子模块 + facade
 
 ## 项目结构
 
 ```
 ai-terminal-manager/
 ├── electron/
-│   ├── main.js            # 应用入口：生命周期 + 窗口 + 模块组装
-│   ├── preload.js         # IPC 安全桥
-│   ├── pty.js             # PTY 生命周期、共享状态、进程清理
-│   ├── monitor.js         # 进程监控 FSM（1.5s BFS tick）
-│   ├── git.js             # Git IPC handlers
-│   ├── fs-handlers.js     # 文件系统 IPC handlers
-│   ├── tray.js            # macOS 菜单栏驻留
-│   ├── tools.js           # 工具目录 + 安装 IPC handlers
-│   ├── config.js          # 配置持久化 + Keychain 迁移
-│   ├── gitStatus.js       # git status --porcelain 解析器（纯函数）
-│   ├── keychain.js        # macOS Keychain 集成
-│   ├── pathValidator.js   # 文件路径验证
-│   ├── hookWatcher.js     # Claude Code Stop hook 精确完成通知
-│   ├── todoAI.js          # AI TODO 助手流式 API
-│   ├── gitStatus.test.js
-│   ├── monitor.test.js
-│   ├── tools.test.js
-│   ├── config.test.js
-│   ├── keychain.test.js
-│   ├── pathValidator.test.js
-│   └── fsImportExternal.test.js
+│   ├── main.js                # 应用入口：生命周期 + 窗口 + 模块组装
+│   ├── preload.js             # IPC 安全桥
+│   ├── pty.js                 # PTY 生命周期、共享状态、进程清理
+│   ├── monitor.js             # 进程监控 FSM（1.5s BFS tick）
+│   ├── resourceMonitor.js     # 系统资源采集（CPU/MEM/BAT）
+│   ├── terminalBuffer.js      # 终端缓冲持久化（500KB/7天）
+│   ├── git.js                 # Git IPC handlers
+│   ├── gitStatus.js           # git status 解析器（纯函数）
+│   ├── fs-handlers.js         # FS facade（委托 browse/ops/image）
+│   ├── fs-handlers-browse.js  # 目录浏览/文件预览
+│   ├── fs-handlers-operations.js # 文件增删改/zip/导入
+│   ├── fs-handlers-image.js   # HEIC/PNG 转换（macOS sips）
+│   ├── config.js              # 配置持久化 + Keychain 迁移
+│   ├── keychain.js            # macOS Keychain 集成
+│   ├── pathValidator.js       # 文件路径安全校验
+│   ├── tools.js               # 工具目录 + Provider 目录 + 安装 IPC
+│   ├── tray.js                # macOS 菜单栏驻留
+│   ├── hookWatcher.js         # Claude Code Stop hook 精确通知
+│   ├── todoAI.js              # AI TODO 助手流式 API
+│   └── *.test.js              # 7 个测试文件
 ├── src/
-│   ├── index.js           # 入口，字体导入，全局 CSS 变量
-│   ├── App.jsx            # 根组件，快捷键，Toast/Modal 挂载
+│   ├── index.js               # 入口，字体，CSS 变量
+│   ├── App.jsx                # 根组件，快捷键，IPC 订阅
 │   ├── store/
-│   │   ├── sessions.js    # Zustand store
-│   │   ├── sessionState.js    # 纯函数抽取（可独立测试）
+│   │   ├── sessions.js        # Zustand store（唯一状态源）
+│   │   ├── sessionState.js    # 纯函数（可独立测试）
 │   │   └── sessionState.test.js
 │   ├── constants/
-│   │   └── toolVisuals.js # 工具/Provider 视觉元数据单一真源
-│   ├── components/
-│   │   ├── Sidebar.jsx        # 项目树 + 会话列表 + 统计
-│   │   ├── TerminalView.jsx   # xterm 终端 + 工具栏 + 状态条
-│   │   ├── SplitContainer.jsx # 分屏容器（v1.2.0）
-│   │   ├── GitPanel.jsx       # Git 管理
-│   │   ├── FileTreePanel.jsx  # 文件浏览器 + 拖拽到终端
-│   │   ├── FilePreviewPanel.jsx # 文件预览（图片/MD/文本）
-│   │   ├── SettingsModal.jsx  # 设置窗口
-│   │   ├── ContextMenu.jsx    # 通用右键菜单 (Portal)
-│   │   ├── PromptDialog.jsx   # 自定义 prompt 对话框
-│   │   ├── PromptTemplate.jsx # Prompt 模板面板（v1.2.0）
-│   │   ├── CommandPalette.jsx # Cmd+P 快速启动面板
-│   │   ├── BroadcastBar.jsx   # 多终端广播输入栏
-│   │   ├── TodoPanel.jsx      # TODO 管理面板
-│   │   ├── TodoAIChat.jsx     # AI TODO 助手聊天
-│   │   ├── ToastStack.jsx     # 响应完成 toast
-│   │   ├── ToolIcons.jsx      # 手绘 SVG 图标集
-│   │   └── ErrorBoundary.jsx  # 渲染错误边界
-│   └── utils/
-│       └── sound.js       # Web Audio 合成提示音
+│   │   └── toolVisuals.js     # 工具视觉元数据单一真源
+│   ├── utils/
+│   │   ├── sound.js           # Web Audio 提示音
+│   │   ├── format.js          # 时长格式化
+│   │   └── drag.js            # 拖放检测（外部/内部）
+│   └── components/
+│       ├── Sidebar.jsx            # 项目树 + 会话列表 + 统计
+│       ├── sidebar/               # 侧边栏子组件
+│       │   ├── ProjectSection.jsx # 项目卡片
+│       │   ├── SessionRow.jsx     # 会话行
+│       │   ├── EditableLabel.jsx  # 内联编辑
+│       │   ├── helpers.js         # 阶段指示器
+│       │   ├── icons.js           # SVG 图标
+│       │   └── styles.js          # 共享样式
+│       ├── TerminalView.jsx   # xterm 终端 + 工具栏 + 监控条
+│       ├── ToolSelector.jsx   # 工具/Provider 下拉选择器
+│       ├── ResourceBar.jsx    # 系统资源监控条
+│       ├── SplitContainer.jsx # 分屏容器
+│       ├── GitPanel.jsx       # Git 管理
+│       ├── FileTreePanel.jsx  # 文件浏览器
+│       ├── FilePreviewPanel.jsx # 文件预览
+│       ├── SettingsModal.jsx  # 5-tab 设置窗口
+│       │   └── settings/          # 设置子组件
+│       │       ├── ProviderCard.jsx
+│       │       ├── CustomProviderCard.jsx
+│       │       ├── AgentConfigTab.jsx
+│       │       ├── AppearanceTab.jsx
+│       │       ├── ToolRow.jsx
+│       │       ├── TabButton.jsx
+│       │       ├── Field.jsx
+│       │       └── styles.js
+│       ├── CommandPalette.jsx # Cmd+P 快速启动
+│       ├── TodoPanel.jsx      # TODO 管理
+│       ├── TodoAIChat.jsx     # AI TODO 助手聊天
+│       ├── ToastStack.jsx     # 通知 toast
+│       ├── ToolIcons.jsx      # 手绘 SVG 图标集
+│       ├── PromptDialog.jsx   # Promise-based prompt
+│       ├── ContextMenu.jsx    # 通用右键菜单
+│       └── ErrorBoundary.jsx  # 渲染错误边界
 ├── .github/workflows/ci.yml
 ├── BUILD.md
 ├── README.md
@@ -215,4 +255,4 @@ ai-terminal-manager/
 
 ---
 
-*Updated: 2026-04-17 -- v1.2.x hookWatcher, todoAI, CommandPalette, FilePreview, TodoPanel, BroadcastBar, toolVisuals*
+*Updated: 2026-04-18 — 全量项目分析：新增 terminalBuffer/resourceMonitor/fs-handlers 拆分/sidebar+settings 子组件/ToolSelector/ResourceBar/drag+format utils*
