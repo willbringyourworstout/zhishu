@@ -9,6 +9,7 @@ const {
   removeSessionFromProjects,
   removeProjectFromProjects,
   getFallbackActiveSessionId,
+  getProjectTodoStats,
 } = require('./sessionState');
 
 const projects = [
@@ -58,6 +59,23 @@ test('uses fallback projects only when the stored list is empty', () => {
   const fallback = [{ id: 'fallback', sessions: [{ id: 'sf' }] }];
   assert.equal(resolveProjects(projects, fallback), projects);
   assert.equal(resolveProjects([], fallback), fallback);
+});
+
+test('getProjectTodoStats returns total and doing counts', () => {
+  const todos = [
+    { id: 't1', projectId: 'p1', status: 'todo' },
+    { id: 't2', projectId: 'p1', status: 'in_progress' },
+    { id: 't3', projectId: 'p1', status: 'done' },
+    { id: 't4', projectId: 'p2', status: 'in_progress' },
+  ];
+  const stats = getProjectTodoStats(todos, 'p1');
+  assert.equal(stats.total, 3);
+  assert.equal(stats.doing, 1);
+  const empty = getProjectTodoStats(todos, 'p99');
+  assert.equal(empty.total, 0);
+  assert.equal(empty.doing, 0);
+  const nullSafe = getProjectTodoStats(null, 'p1');
+  assert.equal(nullSafe.total, 0);
 });
 
 test('resolves theme correctly', () => {

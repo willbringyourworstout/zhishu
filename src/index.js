@@ -108,6 +108,10 @@ globalStyle.textContent = `
     color: var(--text-primary);
     transition: background-color 0.2s, color 0.2s;
   }
+  [data-theme='light'] body {
+    -webkit-font-smoothing: subpixel-antialiased;
+    -moz-osx-font-smoothing: auto;
+  }
 
   /* Thin, subtle scrollbars matching the dark palette */
   ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -136,7 +140,7 @@ globalStyle.textContent = `
   .tree-row:hover { background: var(--bg-hover, #1c1c20); color: var(--text-primary, #f0f0f2) !important; }
 
   /* Template menu item hover */
-  .template-item:hover { background: #1a1a1a; }
+  .template-item:hover { background: var(--bg-hover, #1a1a1a); }
 
   /* Sidebar resizer — show a subtle accent on hover/drag */
   .sidebar-resizer:hover { background: rgba(245, 158, 11, 0.4) !important; }
@@ -150,7 +154,7 @@ globalStyle.textContent = `
   .ctx-item:hover { background: var(--bg-hover, #1c1c20); }
 
   /* Prompt template item hover */
-  .template-item:hover { background: #151515; }
+  .template-item:hover { background: var(--bg-button, #151515); }
   .template-item:hover .template-action-btn { color: #888 !important; }
 
   /* Sidebar action button hover (project + session row buttons) */

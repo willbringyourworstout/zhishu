@@ -105,6 +105,18 @@ export const KimiIcon = ({ size = 14, color = 'currentColor' }) => (
   </svg>
 );
 
+// ─── ZhiShu brand logo (v2 — forge hammer, 32×32 simplified) ────────────────
+export const ZhiShuLogo = ({ size = 32 }) => (
+  <svg width={size} height={size} viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+    <rect width="32" height="32" rx="7" fill="#1C1C1E"/>
+    <g transform="translate(16,16) rotate(-45)">
+      <rect x="-1.5" y="2.5" width="3" height="13" rx="1.5" fill="#A0784A"/>
+      <path d="M -5.5,-10 Q -5.5,-10.5 -4.5,-10.5 L 4.5,-10.5 Q 5.5,-10.5 5.5,-10 L 3,-2.5 Q 3,-2 2,-2 L -2,-2 Q -3,-2 -3,-2.5 Z" fill="#F59E0B"/>
+      <path d="M -5.5,-10 Q -5.5,-10.5 -4.5,-10.5 L 4.5,-10.5 Q 5.5,-10.5 5.5,-10 L 4.8,-8.5 L -4.8,-8.5 Z" fill="#FDE68A" opacity="0.7"/>
+    </g>
+  </svg>
+);
+
 // ─── App brand logo (ZhiShu — golden hammer) ────────────────────────────────
 //
 // Gilded amber background (diagonal gradient) + white hammer mark with

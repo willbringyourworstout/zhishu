@@ -59,7 +59,7 @@ const styles = {
   logoText: {
     fontSize: 18,
     fontWeight: 700,
-    color: '#fafafa',
+    color: 'var(--text-primary, #fafafa)',
     fontFamily: '"PingFang SC", "Inter", "SF Pro Display", system-ui',
     letterSpacing: '0.04em',
     lineHeight: 1,
@@ -107,7 +107,7 @@ const styles = {
   statValue: {
     fontSize: 13,
     fontWeight: 600,
-    color: '#d1d5db',
+    color: 'var(--text-heading, #d1d5db)',
     fontFamily: '"JetBrains Mono", monospace',
     lineHeight: 1.2,
   },
@@ -140,10 +140,10 @@ const styles = {
     fontWeight: 600,
   },
   addProjectBtn: {
-    background: '#151515',
-    border: '1px solid #232323',
+    background: 'var(--bg-button, #151515)',
+    border: '1px solid var(--border-base, #232323)',
     borderRadius: 4,
-    color: '#888',
+    color: 'var(--text-tertiary, #888)',
     cursor: 'pointer',
     padding: '3px 5px',
     display: 'flex',
@@ -156,8 +156,8 @@ const styles = {
     top: 'calc(100% + 6px)',
     right: 0,
     width: 260,
-    background: '#0d0d0d',
-    border: '1px solid #1e1e1e',
+    background: 'var(--bg-card, #0d0d0d)',
+    border: '1px solid var(--border-light, #1e1e1e)',
     borderRadius: 8,
     boxShadow: '0 12px 32px rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.4)',
     padding: 6,
@@ -195,13 +195,13 @@ const styles = {
   templateName: {
     fontSize: 12,
     fontWeight: 600,
-    color: '#d0d0d0',
+    color: 'var(--text-heading, #d0d0d0)',
     fontFamily: 'var(--font-ui)',
     marginBottom: 2,
   },
   templateDesc: {
     fontSize: 10,
-    color: '#555',
+    color: 'var(--text-tertiary, #555)',
     fontFamily: 'var(--font-ui)',
     lineHeight: 1.4,
   },
@@ -246,7 +246,7 @@ const styles = {
   projectName: {
     fontSize: 12,
     fontWeight: 600,
-    color: '#c8ccd1',
+    color: 'var(--text-primary, #c8ccd1)',
     fontFamily: 'system-ui',
     flex: 1,
     overflow: 'hidden',
@@ -293,10 +293,10 @@ const styles = {
   },
   renameInput: {
     flex: 1,
-    background: '#1a1a1a',
+    background: 'var(--bg-input, #1a1a1a)',
     border: '1px solid #f59e0b',
     borderRadius: 3,
-    color: '#e2e8f0',
+    color: 'var(--text-primary, #e2e8f0)',
     fontSize: 12,
     fontFamily: 'var(--font-ui)',
     padding: '2px 6px',
@@ -318,7 +318,7 @@ const styles = {
     whiteSpace: 'nowrap',
   },
   subLineDim: {
-    color: '#444',
+    color: 'var(--text-mute, #444)',
     fontWeight: 500,
   },
   subLineMuted: {
@@ -326,7 +326,7 @@ const styles = {
     fontWeight: 500,
   },
   sessionRowHover: {
-    background: '#131313',
+    background: 'var(--bg-hover, #131313)',
   },
   sessionRowActive: {
     background: 'linear-gradient(to right, rgba(245, 158, 11, 0.08), transparent)',
@@ -391,10 +391,10 @@ const styles = {
 
   // Inline edit input
   inlineInput: {
-    background: '#1a1a1a',
+    background: 'var(--bg-input, #1a1a1a)',
     border: '1px solid var(--text-tertiary, #71717a)',
     borderRadius: 3,
-    color: '#e2e8f0',
+    color: 'var(--text-primary, #e2e8f0)',
     fontSize: 12,
     fontFamily: 'system-ui',
     padding: '2px 5px',
@@ -413,12 +413,12 @@ const styles = {
   },
   emptyIcon: {
     fontSize: 28,
-    color: '#1e1e1e',
+    color: 'var(--border-light, #1e1e1e)',
     marginBottom: 4,
   },
   emptyText: {
     fontSize: 11,
-    color: '#444',
+    color: 'var(--text-tertiary, #444)',
     fontFamily: 'system-ui',
   },
   emptySubText: {
@@ -441,6 +441,27 @@ const styles = {
     letterSpacing: '0.02em',
   },
 
+  // TODO badge on project header
+  todoBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    fontSize: 10,
+    fontWeight: 600,
+    padding: '1px 6px',
+    borderRadius: 10,
+    background: 'rgba(245, 158, 11, 0.1)',
+    color: 'var(--text-secondary, #a1a1aa)',
+    border: '1px solid rgba(245, 158, 11, 0.25)',
+    flexShrink: 0,
+    fontFamily: 'system-ui, -apple-system',
+    lineHeight: 1.6,
+    whiteSpace: 'nowrap',
+  },
+  todoBadgeDoing: {
+    color: '#f59e0b',
+    fontWeight: 700,
+  },
+
   // Group section (contains group header + project sections)
   groupSection: {
     marginBottom: 2,
@@ -459,7 +480,7 @@ const styles = {
   groupName: {
     fontSize: 11,
     fontWeight: 600,
-    color: '#888',
+    color: 'var(--text-tertiary, #888)',
     fontFamily: 'system-ui',
     flex: 1,
     overflow: 'hidden',
@@ -469,17 +490,17 @@ const styles = {
   },
   groupCount: {
     fontSize: 10,
-    color: '#333',
+    color: 'var(--text-mute, #333)',
     fontFamily: '"JetBrains Mono", monospace',
     fontWeight: 500,
     flexShrink: 0,
   },
   groupRenameInput: {
     flex: 1,
-    background: '#1a1a1a',
+    background: 'var(--bg-input, #1a1a1a)',
     border: '1px solid #f59e0b',
     borderRadius: 3,
-    color: '#e2e8f0',
+    color: 'var(--text-primary, #e2e8f0)',
     fontSize: 11,
     fontFamily: 'system-ui',
     padding: '1px 5px',

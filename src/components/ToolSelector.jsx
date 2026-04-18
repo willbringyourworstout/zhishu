@@ -87,6 +87,81 @@ function ChevronIcon({ size = 12, color = 'currentColor' }) {
   );
 }
 
+// ─── Build flat installed-tool list ─────────────────────────────────────────
+
+function buildInstalledItems(toolCatalog, toolStatus, customProviders) {
+  const all = [];
+  const { anthropicEndpoints, standaloneTools } = buildGroups(toolCatalog, customProviders);
+  for (const item of [...anthropicEndpoints, ...standaloneTools]) {
+    if (item.kind === 'tool' && toolStatus[item.id]?.installed === true) {
+      all.push(item);
+    } else if (item.kind === 'provider' || item.kind === 'custom-provider') {
+      // Providers always appear (key must be configured, but still show as installed)
+      all.push(item);
+    }
+  }
+  return all;
+}
+
+// ─── Pinned button ───────────────────────────────────────────────────────────
+
+function PinnedButton({ item, isCurrent, customProviders, onSelect }) {
+  const visual = getVisualForTool(item.id, customProviders);
+  const initial = (visual.label || item.id)[0].toUpperCase();
+
+  return (
+    <button
+      onClick={(e) => onSelect(item, e)}
+      title={visual.label}
+      style={{
+        ...pinnedStyles.btn,
+        borderColor: isCurrent ? visual.color : 'var(--border-button, #2a2a2e)',
+        background: isCurrent ? `${visual.color}18` : 'var(--bg-button, #1a1a1e)',
+        boxShadow: isCurrent ? `0 0 0 1px ${visual.color}44` : 'none',
+      }}
+    >
+      <span style={{ ...pinnedStyles.iconBox, color: visual.color, background: `${visual.color}14`, borderColor: `${visual.color}55` }}>
+        <ToolIcon id={item.id} size={11} color="currentColor" />
+      </span>
+      <span style={{ ...pinnedStyles.initial, color: isCurrent ? visual.color : 'var(--text-secondary, #a1a1aa)' }}>
+        {initial}
+      </span>
+    </button>
+  );
+}
+
+const pinnedStyles = {
+  btn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    padding: '4px 7px',
+    border: '1px solid',
+    borderRadius: 6,
+    cursor: 'pointer',
+    background: 'var(--bg-button, #1a1a1e)',
+    transition: 'all 0.15s',
+    outline: 'none',
+    flexShrink: 0,
+  },
+  iconBox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    border: '1px solid',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  initial: {
+    fontSize: 10,
+    fontWeight: 600,
+    fontFamily: 'var(--font-ui, system-ui)',
+    lineHeight: 1,
+  },
+};
+
 // ─── Main component ──────────────────────────────────────────────────────────
 
 export default function ToolSelector({
@@ -109,6 +184,12 @@ export default function ToolSelector({
   const currentVisual = getVisualForTool(currentToolId, customProviders);
 
   const { anthropicEndpoints, standaloneTools } = buildGroups(toolCatalog, customProviders);
+
+  // Pinned / overflow split
+  const installedItems = buildInstalledItems(toolCatalog, toolStatus, customProviders);
+  const usePinnedLayout = installedItems.length <= 4;
+  const PINNED_MAX = 3;
+  const pinnedItems = usePinnedLayout ? installedItems : installedItems.slice(0, PINNED_MAX);
 
   // Close on outside click
   useEffect(() => {
@@ -244,8 +325,19 @@ export default function ToolSelector({
   };
 
   return (
-    <>
-      {/* Trigger button */}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      {/* Pinned flat buttons */}
+      {pinnedItems.map((item) => (
+        <PinnedButton
+          key={item.id}
+          item={item}
+          isCurrent={item.id === currentToolId}
+          customProviders={customProviders}
+          onSelect={handleSelect}
+        />
+      ))}
+
+      {/* Dropdown trigger — always shown for overflow or when no items */}
       <button
         ref={triggerRef}
         onClick={() => setOpen((v) => !v)}
@@ -254,6 +346,8 @@ export default function ToolSelector({
           borderColor: open ? currentVisual.color : 'var(--border-button, #2a2a2e)',
           boxShadow: open ? `0 0 0 1px ${currentVisual.color}33, 0 4px 12px ${currentVisual.glow}` : 'none',
           background: open ? 'var(--bg-hover, #1c1c20)' : 'var(--bg-button, #1a1a1e)',
+          // Narrow: only show if there are overflow items OR no installed items flat
+          ...(usePinnedLayout && installedItems.length > 0 ? { display: 'none' } : {}),
         }}
         title={`Current: ${currentVisual.label}\nClick to change tool`}
       >
@@ -301,7 +395,7 @@ export default function ToolSelector({
         </div>,
         document.body,
       )}
-    </>
+    </div>
   );
 }
 

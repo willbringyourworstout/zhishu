@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { useSessionStore } from '../../store/sessions';
+import { getProjectTodoStats } from '../../store/sessionState';
 import { IconFolder, IconChevron, IconEdit, IconPlus, IconTrash, IconGrip } from './icons';
 import EditableLabel from './EditableLabel';
 import SessionRow from './SessionRow';
@@ -152,26 +153,14 @@ function ProjectSection({ project, index, activeSessionId, sessionStatus, onCont
         />
         {/* TODO badge */}
         {(() => {
-          const count = todos.filter(t => t.projectId === project.id && t.status !== 'done').length;
-          if (count === 0) return null;
-          const today = new Date().toISOString().slice(0, 10);
-          const hasOverdue = todos.some(t =>
-            t.projectId === project.id && t.status !== 'done' && t.dueDate &&
-            t.dueDate < today
-          );
+          const { total, doing } = getProjectTodoStats(todos, project.id);
+          if (total === 0) return null;
           return (
-            <span style={{
-              fontSize: 10,
-              fontWeight: 600,
-              padding: '1px 5px',
-              borderRadius: 10,
-              background: hasOverdue ? '#3a1a1a' : '#1a2a3a',
-              color: hasOverdue ? '#ef4444' : '#60a5fa',
-              border: `1px solid ${hasOverdue ? '#5a2828' : '#2a4a6a'}`,
-              flexShrink: 0,
-              fontFamily: 'system-ui, -apple-system',
-            }}>
-              {count}
+            <span style={styles.todoBadge}>
+              {total}
+              {doing > 0 && (
+                <span style={styles.todoBadgeDoing}> · {doing} doing</span>
+              )}
             </span>
           );
         })()}

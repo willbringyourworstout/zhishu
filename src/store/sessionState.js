@@ -99,6 +99,15 @@ function getGroupOrder(groups) {
   return [...userGroups, { id: 'ungrouped', name: '未分组', system: true }];
 }
 
+// ── TODO stats helper ──────────────────────────────────────────────────────
+
+export function getProjectTodoStats(todos, projectId) {
+  const list = (todos || []).filter((t) => t.projectId === projectId);
+  const total = list.length;
+  const doing = list.filter((t) => t.status === 'in_progress').length;
+  return { total, doing };
+}
+
 export {
   getFirstSessionId,
   hasSessionId,

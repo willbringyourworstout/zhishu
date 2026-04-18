@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useMemo } from 'react';
 import { useSessionStore } from '../store/sessions';
-import { AppLogo } from './ToolIcons';
+import { ZhiShuLogo } from './ToolIcons';
 import ContextMenu from './ContextMenu';
 import { getGroupOrder } from '../store/sessionState';
 import { isExternalDrop } from '../utils/drag';
@@ -210,7 +210,7 @@ export default function Sidebar() {
       <div style={styles.header} className="drag-region">
         <div style={styles.headerLogo}>
           <div style={styles.logoMark}>
-            <AppLogo size={32} />
+            <ZhiShuLogo size={32} />
           </div>
           <div style={styles.logoTextGroup}>
             <div style={styles.logoTextRow}>

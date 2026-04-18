@@ -1,0 +1,59 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Gilded amber background (unchanged) -->
+    <linearGradient id="bg" x1="15%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%"   stop-color="#FDE68A"/>
+      <stop offset="22%"  stop-color="#FBBF24"/>
+      <stop offset="55%"  stop-color="#D97706"/>
+      <stop offset="85%"  stop-color="#78350F"/>
+      <stop offset="100%" stop-color="#431407"/>
+    </linearGradient>
+
+    <linearGradient id="topSheen" x1="50%" y1="0%" x2="50%" y2="40%">
+      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <radialGradient id="innerGlow" cx="50%" cy="50%" r="52%">
+      <stop offset="0%"   stop-color="#FEF3C7" stop-opacity="0.42"/>
+      <stop offset="70%"  stop-color="#FEF3C7" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Hammer face fill: subtle white-to-pale-cream for dimension -->
+    <linearGradient id="hammer" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%"   stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#FEF3C7"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Gilded amber background -->
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="228" fill="url(#topSheen)"/>
+  <circle cx="512" cy="512" r="440" fill="url(#innerGlow)"/>
+
+  <!--
+    ═══ HAMMER ═══
+    Slight counter-clockwise tilt (-12°) gives subtle dynamism
+    without sacrificing readability. Centered at (512, 540) so
+    visual weight balances within the tile.
+  -->
+  <g transform="translate(512, 540) rotate(-12)" fill="url(#hammer)">
+    <!-- Handle: long shaft tapering not shown (uniform rect w/ rounded ends) -->
+    <rect x="-34" y="-90" width="68" height="590" rx="32"/>
+
+    <!-- Head: wide perpendicular block at top of handle -->
+    <rect x="-215" y="-220" width="430" height="130" rx="32"/>
+
+    <!-- Head top-edge bright highlight -->
+    <rect x="-215" y="-220" width="430" height="10" rx="5"
+          fill="#FFFFFF" opacity="0.85"/>
+
+    <!-- Head bottom-edge soft shadow (depth) -->
+    <rect x="-215" y="-102" width="430" height="12" rx="6"
+          fill="#451407" opacity="0.14"/>
+
+    <!-- Handle grip ring near bottom (craftsman detail) -->
+    <rect x="-44" y="380" width="88" height="16" rx="8"
+          fill="#451407" opacity="0.18"/>
+  </g>
+</svg>
