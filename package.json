@@ -1,6 +1,6 @@
 {
   "name": "ai-terminal-manager",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "description": "Professional AI CLI Session Manager",
   "author": "Xuuuuu04",
   "main": "electron/main.js",
